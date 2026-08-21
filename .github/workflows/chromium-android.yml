@@ -51,7 +51,7 @@ jobs:
     # hosted runner. Compilation still happens exclusively inside GitHub Actions,
     # on a runner registered to this repository with these labels.
     runs-on: [self-hosted, linux, x64, chromium]
-    timeout-minutes: 720
+    timeout-minutes: 360
     env:
       NAUTRIX_WORK: ${{ runner.temp }}/nautrix-work
       NAUTRIX_ENABLE_TORRENT: '1'
