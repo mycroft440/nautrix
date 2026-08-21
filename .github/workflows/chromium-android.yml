@@ -1,0 +1,87 @@
+name: Chromium Android ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'audit/**'
+    paths:
+      - '.github/workflows/chromium-android.yml'
+      - 'config/**'
+      - 'native/**'
+      - 'overlays/**'
+      - 'scripts/**'
+      - 'tests/**'
+  pull_request:
+    paths:
+      - '.github/workflows/chromium-android.yml'
+      - 'config/**'
+      - 'native/**'
+      - 'overlays/**'
+      - 'scripts/**'
+      - 'tests/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromium-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repository invariants
+        run: python3 scripts/verify_repo.py
+      - name: Shell syntax
+        run: |
+          bash -n scripts/bootstrap_chromium.sh
+          bash -n scripts/apply_overlays.sh
+          bash -n scripts/build_android.sh
+          bash -n scripts/build_adblock_android.sh
+          bash -n scripts/build_libtorrent_android.sh
+
+  full-build:
+    needs: preflight
+    # A complete Chromium Android checkout/build is too large for a standard
+    # hosted runner. Compilation still happens exclusively inside GitHub Actions,
+    # on a runner registered to this repository with these labels.
+    runs-on: [self-hosted, linux, x64, chromium]
+    timeout-minutes: 720
+    env:
+      NAUTRIX_WORK: ${{ runner.temp }}/nautrix-work
+      NAUTRIX_ENABLE_TORRENT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install Rust Android tooling
+        run: cargo install cargo-ndk --locked
+      - name: Bootstrap pinned Chromium
+        run: ./scripts/bootstrap_chromium.sh "$NAUTRIX_WORK"
+      - name: Verify pinned revision and upstream capabilities
+        run: python3 scripts/verify_repo.py --chromium-src "$NAUTRIX_WORK/chromium/src"
+      - name: Build Nautrix release APK
+        env:
+          ANDROID_NDK_ROOT: ${{ runner.temp }}/nautrix-work/chromium/src/third_party/android_toolchain/ndk
+        run: ./scripts/build_android.sh "$NAUTRIX_WORK/chromium/src" Nautrix
+      - name: Collect APK
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          APK="$(find "$NAUTRIX_WORK/chromium/src/out/Nautrix/apks" -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          cp "$APK" artifacts/Nautrix-arm64-release.apk
+          sha256sum artifacts/Nautrix-arm64-release.apk > artifacts/Nautrix-arm64-release.apk.sha256
+          printf '%s\n' "$(cat config/chromium_revision.txt)" > artifacts/chromium-revision.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nautrix-arm64-release-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

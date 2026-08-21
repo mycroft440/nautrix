@@ -1,0 +1,44 @@
+name: Fast checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy-and-structure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Repository invariants
+        run: python3 scripts/verify_repo.py
+      - name: Policy tests
+        run: ./scripts/test_policy_core.sh
+      - name: Script syntax
+        run: |
+          python3 -m py_compile scripts/integrate_chromium.py scripts/verify_repo.py
+          bash -n scripts/bootstrap_chromium.sh scripts/apply_overlays.sh scripts/build_android.sh
+          bash -n scripts/build_adblock_android.sh scripts/build_libtorrent_android.sh
+
+  rust-adblock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo check and unit tests
+        working-directory: native/adblock_ffi
+        run: |
+          cargo check --locked
+          cargo test --locked

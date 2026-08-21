@@ -1,0 +1,13 @@
+[package]
+name = "nautrix_adblock"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "BSD-3-Clause"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+adblock = { git = "https://github.com/brave/adblock-rust", rev = "886d45dcf5283ce8eddc6d961e7dd27966ab23f2", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+serde_json = "1"

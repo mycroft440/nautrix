@@ -193,6 +193,9 @@ def patch_manifest(src: Path) -> None:
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" />
+        <activity android:name="org.chromium.chrome.browser.nautrix.torrent.NautrixTorrentManagerActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity android:name="org.chromium.chrome.browser.nautrix.torrent.NautrixTorrentEntryActivity"
             android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
@@ -221,6 +224,38 @@ def patch_manifest(src: Path) -> None:
     src.write_text(text)
 
 
+
+def patch_add_to_homescreen(src: Path) -> None:
+    """Make the explicit Install flow create standalone apps even for ordinary sites.
+
+    Upstream Chromium intentionally falls back to a browser-tab shortcut when a page is not
+    WebAPK-installable. Nautrix's product contract is different: choosing Install must produce an
+    app-like standalone launcher entry, while the explicit Add shortcut choice keeps Chromium's
+    normal browser-tab behavior.
+    """
+    text = src.read_text()
+    include = '#include "components/webapps/browser/banners/app_banner_settings_helper.h"\n'
+    if include not in text:
+        anchor = '#include "components/webapps/browser/banners/app_banner_manager.h"\n'
+        if anchor not in text:
+            raise RuntimeError("Add-to-homescreen include anchor changed")
+        text = text.replace(anchor, anchor + include, 1)
+
+    marker = "void AddToHomescreenDataFetcher::PrepareToAddShortcut() {\n"
+    insertion = (
+        "  // Nautrix: an explicit Install request must launch without normal browser chrome,\n"
+        "  // even when the page does not meet WebAPK/PWA installability requirements.\n"
+        "  if (app_menu_type_ ==\n"
+        "      AppBannerSettingsHelper::APP_MENU_OPTION_INSTALL) {\n"
+        "    shortcut_info_.display = blink::mojom::DisplayMode::kStandalone;\n"
+        "  }\n"
+    )
+    if insertion.strip() not in text:
+        if marker not in text:
+            raise RuntimeError("PrepareToAddShortcut anchor changed")
+        text = text.replace(marker, marker + insertion, 1)
+    src.write_text(text)
+
 def integrate(root: Path) -> None:
     required = [
         root / "chrome/android/BUILD.gn",
@@ -230,6 +265,7 @@ def integrate(root: Path) -> None:
         root / "chrome/browser/BUILD.gn",
         root / "chrome/browser/chrome_content_browser_client.cc",
         root / "chrome/browser/privacy/BUILD.gn",
+        root / "components/webapps/browser/android/add_to_homescreen_data_fetcher.cc",
     ]
     for path in required:
         if not path.exists():
@@ -255,6 +291,9 @@ def integrate(root: Path) -> None:
     )
     patch_tabbed_activity(
         root / "chrome/android/java/src/org/chromium/chrome/browser/ChromeTabbedActivity.java"
+    )
+    patch_add_to_homescreen(
+        root / "components/webapps/browser/android/add_to_homescreen_data_fetcher.cc"
     )
     patch_manifest(root / "chrome/android/java/AndroidManifest.xml")
 
