@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Repository invariants
         run: python3 scripts/verify_repo.py
       - name: Shell syntax
@@ -49,14 +49,15 @@ jobs:
     needs: preflight
     # A complete Chromium Android checkout/build is too large for a standard
     # hosted runner. Compilation still happens exclusively inside GitHub Actions,
-    # on a runner registered to this repository with these labels.
-    runs-on: [self-hosted, linux, x64, chromium]
+    # on a Linux x64 runner registered to this repository.
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 360
     env:
-      NAUTRIX_WORK: ${{ runner.temp }}/nautrix-work
       NAUTRIX_ENABLE_TORRENT: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - name: Configure work directory
+        run: echo "NAUTRIX_WORK=$RUNNER_TEMP/nautrix-work" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
@@ -67,9 +68,9 @@ jobs:
       - name: Verify pinned revision and upstream capabilities
         run: python3 scripts/verify_repo.py --chromium-src "$NAUTRIX_WORK/chromium/src"
       - name: Build Nautrix release APK
-        env:
-          ANDROID_NDK_ROOT: ${{ runner.temp }}/nautrix-work/chromium/src/third_party/android_toolchain/ndk
-        run: ./scripts/build_android.sh "$NAUTRIX_WORK/chromium/src" Nautrix
+        run: |
+          export ANDROID_NDK_ROOT="$NAUTRIX_WORK/chromium/src/third_party/android_toolchain/ndk"
+          ./scripts/build_android.sh "$NAUTRIX_WORK/chromium/src" Nautrix
       - name: Collect APK
         run: |
           set -euo pipefail
