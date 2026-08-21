@@ -47,10 +47,9 @@ jobs:
 
   full-build:
     needs: preflight
-    # A complete Chromium Android checkout/build is too large for a standard
-    # hosted runner. Compilation still happens exclusively inside GitHub Actions,
-    # on a Linux x64 runner registered to this repository.
-    runs-on: [self-hosted, linux, x64]
+    # Compilation is performed only by GitHub Actions. The hosted runner is
+    # aggressively cleaned because Chromium supplies its own Android SDK/NDK.
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
       NAUTRIX_ENABLE_TORRENT: '1'
@@ -58,6 +57,19 @@ jobs:
       - uses: actions/checkout@v6
       - name: Configure work directory
         run: echo "NAUTRIX_WORK=$RUNNER_TEMP/nautrix-work" >> "$GITHUB_ENV"
+      - name: Reclaim hosted-runner disk space
+        run: |
+          set -euxo pipefail
+          df -h /
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/powershell || true
+          sudo docker system prune -af || true
+          sudo apt-get clean
+          df -h /
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
