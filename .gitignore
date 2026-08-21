@@ -1,0 +1,22 @@
+# Chromium/depot_tools checkouts and build output
+chromium/
+depot_tools/
+out/
+work/
+
+# Rust/NDK output
+native/**/target/
+native/libtorrent-src/
+native/libtorrent-build/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Generated test output
+.test-out/
+*.class
+__pycache__/
+*.pyc

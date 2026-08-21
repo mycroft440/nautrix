@@ -1,0 +1,58 @@
+import("//build/config/android/config.gni")
+
+declare_args() {
+  nautrix_enable_adblock_rust = false
+  nautrix_adblock_lib_path = ""
+  nautrix_enable_torrent = false
+  nautrix_libtorrent_lib_path = ""
+  nautrix_libtorrent_include_dir = ""
+}
+
+source_set("download_protection") {
+  sources = [ "download/nautrix_download_protection_jni.cc" ]
+  deps = [
+    "//base",
+    "//components/download/public/common",
+    "//content/public/browser",
+  ]
+}
+
+source_set("adblock_integration") {
+  sources = [
+    "adblock/nautrix_adblock_engine.cc",
+    "adblock/nautrix_adblock_engine.h",
+    "adblock/nautrix_adblock_ffi.h",
+    "adblock/nautrix_adblock_throttle.cc",
+    "adblock/nautrix_adblock_throttle.h",
+  ]
+  deps = [
+    ":download_protection",
+    "//base",
+    "//net",
+    "//services/network/public/cpp",
+    "//third_party/blink/public:blink",
+  ]
+  if (nautrix_enable_adblock_rust && nautrix_adblock_lib_path != "") {
+    defines = [ "NAUTRIX_HAS_ADBLOCK_RUST=1" ]
+    libs = [ nautrix_adblock_lib_path ]
+  } else {
+    defines = [ "NAUTRIX_HAS_ADBLOCK_RUST=0" ]
+  }
+}
+
+source_set("torrent_native") {
+  sources = [ "torrent/nautrix_torrent_jni.cc" ]
+  deps = [ "//base" ]
+  if (nautrix_enable_torrent && nautrix_libtorrent_lib_path != "" &&
+      nautrix_libtorrent_include_dir != "") {
+    defines = [ "NAUTRIX_HAS_LIBTORRENT=1" ]
+    include_dirs = [ nautrix_libtorrent_include_dir ]
+    libs = [ nautrix_libtorrent_lib_path ]
+  } else {
+    defines = [ "NAUTRIX_HAS_LIBTORRENT=0" ]
+  }
+}
+
+group("torrent_integration") {
+  deps = [ ":torrent_native" ]
+}

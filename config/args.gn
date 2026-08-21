@@ -1,0 +1,16 @@
+# Nautrix Android ARM64 baseline. scripts/build_android.sh appends native-library paths.
+target_os = "android"
+target_cpu = "arm64"
+is_debug = false
+is_component_build = false
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+
+# Chromium's experimental desktop-style extension stack on Android.
+enable_desktop_android_extensions = true
+
+# Keep the base build lean. Optional native integrations are enabled when their
+# prebuilt paths are supplied by scripts/build_android.sh.
+nautrix_enable_adblock_rust = true
+nautrix_enable_torrent = false

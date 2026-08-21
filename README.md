@@ -16,10 +16,10 @@ Nautrix is an Android-first Chromium browser project focused on a small base ins
 - Chromium Android, ARM64 first.
 - Manifest V3 extension support using Chromium's experimental Extensions Core / desktop-Android work.
 - Dark theme by default.
-- Native ad/tracker blocker, planned around `brave/adblock-rust`.
+- Native ad/tracker blocker built around `brave/adblock-rust`, integrated before network bodies are downloaded.
 - Secure DNS (DoH), manual provider selection, plus automatic benchmarking by real DNS resolution latency/stability.
 - Download manager with pause/resume/background operation.
-- Torrent/magnet support planned as an optional libtorrent module.
+- Torrent/magnet support as an optional libtorrent module with a foreground transfer service.
 - Media3/ExoPlayer-based native media player with background audio, MediaSession and Picture-in-Picture.
 - Persistent smart media cache: already-received media remains playable offline for 5 days after last access, subject to storage/DRM constraints.
 - Install pages as apps/PWAs.
@@ -41,9 +41,9 @@ This repository is intentionally **not a copy of the whole Chromium source tree*
 
 ## Current state
 
-**Phase 0 / foundation.** The initial repository contains working policy code and tests for tab retention, media-cache retention and automatic DNS scoring, plus Chromium bootstrap/build scaffolding and native feature skeletons.
+**Active integration / audit phase.** Nautrix now contains the Chromium integration script, Android runtime, 1h/5d tab lifecycle, DNS benchmark engine, Rust adblock FFI + browser throttle, Media3 player/background session/PiP, Smart Cache, permanent adaptive-media downloads, and optional libtorrent v2.1.1 torrent engine with fast-resume and native manager UI.
 
-The full Chromium browser, extensions UI, adblock-rust FFI, libtorrent and Media3 integration still need to be wired into upstream Chromium.
+Fast policy and repository checks run without a Chromium checkout. A **full Chromium ARM64 build is the release gate** and compilation is performed only by GitHub Actions. The workflow uses the exact Chromium commit pinned in `config/chromium_revision.txt`, builds Rust adblock + libtorrent with Chromium's synced NDK, compiles `chrome_public_apk`, and uploads the APK plus SHA-256 as an Actions artifact. Cosmetic/scriptlet ad filtering and privacy hardening remain under critic review.
 
 ## Quick policy test
 
