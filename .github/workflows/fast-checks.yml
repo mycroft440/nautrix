@@ -37,6 +37,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Generate lockfile for first reproducible pin
+        working-directory: native/adblock_ffi
+        run: cargo generate-lockfile
+      - name: Upload generated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: adblock-cargo-lock
+          path: native/adblock_ffi/Cargo.lock
+          if-no-files-found: error
+          retention-days: 1
       - name: Cargo check and unit tests
         working-directory: native/adblock_ffi
         run: |
