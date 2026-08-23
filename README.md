@@ -1,64 +1,63 @@
 # Nautrix Browser
 
-Nautrix is an Android-first Chromium browser project focused on a small base install, native privacy, extensions, advanced downloads and media playback.
+Nautrix agora contém um navegador Android standalone compilável, além dos overlays experimentais para uma futura distribuição completa baseada em Chromium.
 
-## Product principles
+## O que funciona no APK
 
-1. **Chromium upstream first** — keep custom code isolated so security updates can be rebased quickly.
-2. **Small by default** — ARM64 first; optional heavyweight features are modular.
-3. **Dark by default** — browser chrome ships in dark mode by default.
-4. **Privacy in the network path** — native ad/tracker filtering and secure DNS, not only extensions.
-5. **Media that survives connectivity changes** — persistent smart cache for already-received, non-DRM media.
-6. **No bypass of DRM or access controls** — media features operate on content the browser is allowed to receive/store.
+- navegação por HTTPS e pesquisa DuckDuckGo;
+- múltiplas abas com restauração da sessão;
+- downloads em segundo plano pelo DownloadManager;
+- upload de arquivos;
+- favoritos, compartilhamento e modo desktop;
+- câmera e microfone somente após autorização do Android e do usuário;
+- Safe Browsing, bloqueio de TLS inválido, sem tráfego HTTP em texto claro;
+- bloqueio nativo com o motor [`brave/adblock-rust`](https://github.com/brave/adblock-rust), EasyList, EasyPrivacy e filtros cosméticos;
+- proteção ativável/desativável por site e contador de bloqueios por aba;
+- tema escuro.
 
-## Requested feature set
+Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado exato de cada item.
 
-- Chromium Android, ARM64 first.
-- Manifest V3 extension support using Chromium's experimental Extensions Core / desktop-Android work.
-- Dark theme by default.
-- Native ad/tracker blocker, planned around `brave/adblock-rust`.
-- Secure DNS (DoH), manual provider selection, plus automatic benchmarking by real DNS resolution latency/stability.
-- Download manager with pause/resume/background operation.
-- Torrent/magnet support planned as an optional libtorrent module.
-- Media3/ExoPlayer-based native media player with background audio, MediaSession and Picture-in-Picture.
-- Persistent smart media cache: already-received media remains playable offline for 5 days after last access, subject to storage/DRM constraints.
-- Install pages as apps/PWAs.
-- Automatic tab lifecycle:
-  - never-used background tabs: close after 1 hour;
-  - used tabs: close after 5 days of inactivity;
-  - pinned, active-media, active-download and dirty-form tabs are protected.
+## Build pelo GitHub Actions
 
-## Repository model
+O workflow **Android APKs** executa testes, compila o motor Rust para ARM64, ARMv7 e x86_64, gera os APKs e verifica suas assinaturas.
 
-This repository is intentionally **not a copy of the whole Chromium source tree**. Chromium is huge and changes constantly. Nautrix keeps:
+Artefatos gerados:
 
-- `overlays/chromium/` — Nautrix-owned source files copied into a Chromium checkout;
-- `patches/` — narrow upstream patches when overlay-only integration is impossible;
-- `config/` — GN build args;
-- `scripts/` — bootstrap/apply/build helpers;
-- `docs/` — architecture and implementation status;
-- `tests/` — fast tests for Nautrix policy code that do not require a full Chromium build.
+- `Nautrix-debug/Nautrix-debug.apk`
+- `Nautrix-release/Nautrix-release.apk`
 
-## Current state
+O workflow roda em todo push na `main` e também pode ser iniciado por **Actions → Android APKs → Run workflow**.
 
-**Phase 0 / foundation.** The initial repository contains working policy code and tests for tab retention, media-cache retention and automatic DNS scoring, plus Chromium bootstrap/build scaffolding and native feature skeletons.
+### Assinatura release
 
-The full Chromium browser, extensions UI, adblock-rust FFI, libtorrent and Media3 integration still need to be wired into upstream Chromium.
+Para uma assinatura permanente de produção, configure estes secrets no repositório:
 
-## Quick policy test
+- `NAUTRIX_RELEASE_KEYSTORE_BASE64`
+- `NAUTRIX_RELEASE_STORE_PASSWORD`
+- `NAUTRIX_RELEASE_KEY_ALIAS`
+- `NAUTRIX_RELEASE_KEY_PASSWORD`
+
+Sem esses secrets, o workflow cria uma chave temporária de CI. O APK será instalável, mas não deve ser publicado nem usado para atualizar uma versão anterior.
+
+## Build local
+
+Requisitos: Java 17, Android SDK 35, NDK 27.2, Rust estável, `cargo-ndk` 4.1.2 e Gradle 8.9.
 
 ```bash
-./scripts/test_policy_core.sh
+cargo ndk \
+  --target arm64-v8a \
+  --target armeabi-v7a \
+  --target x86_64 \
+  --output-dir app/src/main/jniLibs \
+  build --release --manifest-path native/adblock_android/Cargo.toml
+
+gradle testDebugUnitTest assembleDebug
 ```
 
-## Bootstrap Chromium
+## Estrutura
 
-Requires a Linux x86-64 machine with enough disk/RAM for Chromium development.
-
-```bash
-./scripts/bootstrap_chromium.sh /path/to/work
-./scripts/apply_overlays.sh /path/to/work/chromium/src
-./scripts/build_android.sh /path/to/work/chromium/src
-```
-
-The default build target is `chrome_public_apk` and the default Nautrix target CPU is ARM64.
+- `app/` — navegador Android standalone;
+- `native/adblock_android/` — JNI do motor Brave adblock-rust usado pelo APK;
+- `overlays/chromium/` — pesquisa/integrações experimentais preservadas;
+- `native/adblock_ffi/` — FFI anterior para uma árvore Chromium completa;
+- `scripts/verify_project.py` — validação rápida do contrato do projeto.

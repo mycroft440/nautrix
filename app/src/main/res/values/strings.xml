@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Nautrix</string>
+    <string name="new_tab">Nova aba</string>
+    <string name="close_tab">Fechar aba</string>
+    <string name="share">Compartilhar</string>
+    <string name="add_bookmark">Adicionar favorito</string>
+    <string name="bookmarks">Favoritos</string>
+    <string name="desktop_site">Versão para computador</string>
+    <string name="clear_data">Limpar dados de navegação</string>
+    <string name="download_started">Download iniciado</string>
+    <string name="download_failed">Não foi possível iniciar o download</string>
+</resources>

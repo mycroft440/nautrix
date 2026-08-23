@@ -1,0 +1,10 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+native/adblock_android/target/
+app/src/main/jniLibs/
+*.iml
+*.jks
+*.keystore
+dist/
