@@ -9,7 +9,10 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.graphics.Color;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -55,12 +58,13 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** A small, standalone Android browser. Chromium overlay experiments remain separate. */
-public final class BrowserActivity extends Activity {
+public class BrowserActivity extends Activity {
     private static final String HOME_URL = "https://duckduckgo.com/";
     private static final int FILE_CHOOSER_REQUEST = 4101;
     private static final int STORAGE_PERMISSION_REQUEST = 4102;
     private static final int WEB_PERMISSION_REQUEST = 4103;
     private static final int MAX_RESTORED_TABS = 12;
+    static final String EXTRA_WEB_APP_MODE = "web_app_mode";
 
     private final ArrayList<BrowserTab> tabs = new ArrayList<>();
     private FrameLayout browserHost;
@@ -75,15 +79,20 @@ public final class BrowserActivity extends Activity {
     private PendingDownload pendingDownload;
     private SharedPreferences preferences;
     private AdBlockEngine adBlockEngine;
+    private AutoDnsManager autoDnsManager;
+    private boolean webAppMode;
+    private boolean initialTabsOpened;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.parseColor("#0B1117"));
         getWindow().setNavigationBarColor(Color.parseColor("#0B1117"));
+        webAppMode = getIntent() != null && getIntent().getBooleanExtra(EXTRA_WEB_APP_MODE, false);
         preferences = getSharedPreferences("nautrix", MODE_PRIVATE);
         adBlockEngine = new AdBlockEngine(this);
         adBlockEngine.initialize();
+        autoDnsManager = AutoDnsManager.get(this);
         boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         WebView.setWebContentsDebuggingEnabled(debuggable);
         buildInterface();
@@ -92,6 +101,13 @@ public final class BrowserActivity extends Activity {
             WebView.startSafeBrowsing(this, ignored -> { });
         }
 
+        autoDnsManager.installWebViewProxy(() -> openInitialTabs(savedInstanceState));
+        autoDnsManager.benchmarkAsync(false, null);
+    }
+
+    private void openInitialTabs(Bundle savedInstanceState) {
+        if (initialTabsOpened || isFinishing() || isDestroyed()) return;
+        initialTabsOpened = true;
         Uri requested = getIntent() == null ? null : getIntent().getData();
         if (requested != null && "https".equalsIgnoreCase(requested.getScheme())) {
             createTab(requested.toString(), true);
@@ -146,6 +162,7 @@ public final class BrowserActivity extends Activity {
         toolbar.addView(actionButton("→", "Abrir", view -> loadAddressBar()));
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        if (webAppMode) toolbar.setVisibility(View.GONE);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -173,6 +190,7 @@ public final class BrowserActivity extends Activity {
         navigation.addView(bottomButton("⋮", "Menu", this::showMenu));
         root.addView(navigation, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        if (webAppMode) navigation.setVisibility(View.GONE);
 
         setContentView(root);
     }
@@ -302,6 +320,10 @@ public final class BrowserActivity extends Activity {
         menu.getMenu().add("Favoritos");
         menu.getMenu().add("Compartilhar");
         menu.getMenu().add("Abrir vídeo no player");
+        menu.getMenu().add("Vídeos em cache");
+        menu.getMenu().add("Instalar página como app");
+        menu.getMenu().add("DNS automático");
+        menu.getMenu().add("Limpar cache de vídeos");
         menu.getMenu().add(currentTab().desktop ? "Usar versão móvel" : "Versão para computador");
         menu.getMenu().add("Abrir no aplicativo externo");
         menu.getMenu().add("Limpar dados de navegação");
@@ -313,6 +335,10 @@ public final class BrowserActivity extends Activity {
             else if ("Favoritos".equals(title)) showBookmarks();
             else if ("Compartilhar".equals(title)) sharePage();
             else if ("Abrir vídeo no player".equals(title)) openVideoPlayer();
+            else if ("Vídeos em cache".equals(title)) showCachedVideos();
+            else if ("Instalar página como app".equals(title)) installCurrentSite();
+            else if ("DNS automático".equals(title)) showAutoDnsPanel();
+            else if ("Limpar cache de vídeos".equals(title)) clearVideoCache();
             else if (title.contains("versão")) toggleDesktopMode();
             else if ("Abrir no aplicativo externo".equals(title)) openExternally();
             else if ("Limpar dados de navegação".equals(title)) confirmClearData();
@@ -456,8 +482,97 @@ public final class BrowserActivity extends Activity {
         if ((cookie == null || cookie.isEmpty()) && referer != null) {
             cookie = CookieManager.getInstance().getCookie(referer);
         }
+        String title = currentIndex >= 0 && currentIndex < tabs.size()
+                ? currentTab().title : "Vídeo";
+        VideoHistory.remember(this, videoUrl, referer, userAgent, title);
         startActivity(VideoPlayerActivity.createIntent(
                 this, videoUrl, referer, userAgent, cookie));
+    }
+
+    private void showCachedVideos() {
+        java.util.List<VideoHistory.Entry> entries = VideoHistory.list(this);
+        if (entries.isEmpty()) {
+            Toast.makeText(this, "Nenhum vídeo passou pelo cache ainda",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        String[] labels = new String[entries.size()];
+        for (int index = 0; index < entries.size(); index++) {
+            VideoHistory.Entry entry = entries.get(index);
+            labels[index] = entry.title + "\n" + Uri.parse(entry.url).getHost();
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Vídeos em cache")
+                .setMessage("Offline, somente os trechos que já foram carregados podem tocar.")
+                .setItems(labels, (dialog, which) -> {
+                    VideoHistory.Entry entry = entries.get(which);
+                    String storedCookie = CookieManager.getInstance().getCookie(entry.url);
+                    startActivity(VideoPlayerActivity.createIntent(this, entry.url,
+                            entry.referer, entry.userAgent, storedCookie));
+                })
+                .setNegativeButton("Fechar", null)
+                .show();
+    }
+
+    private void installCurrentSite() {
+        String url = currentWebView().getUrl();
+        if (url == null || !url.startsWith("https://")) {
+            Toast.makeText(this, "Somente páginas HTTPS podem ser instaladas",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        ShortcutManager manager = getSystemService(ShortcutManager.class);
+        if (manager == null || !manager.isRequestPinShortcutSupported()) {
+            Toast.makeText(this, "A tela inicial deste aparelho não aceita instalação de sites",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        String pageTitle = currentTab().title;
+        if (pageTitle == null || pageTitle.trim().isEmpty()) {
+            String host = Uri.parse(url).getHost();
+            pageTitle = host == null ? "Site Nautrix" : host;
+        }
+        pageTitle = pageTitle.trim();
+        if (pageTitle.length() > 36) pageTitle = pageTitle.substring(0, 36);
+        Intent launch = new Intent(this, InstalledSiteActivity.class)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(Uri.parse(url))
+                .putExtra(EXTRA_WEB_APP_MODE, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        ShortcutInfo shortcut = new ShortcutInfo.Builder(
+                this, "nautrix_site_" + Integer.toHexString(url.hashCode()))
+                .setShortLabel(pageTitle)
+                .setLongLabel("Abrir " + pageTitle + " no Nautrix")
+                .setIcon(Icon.createWithResource(this, R.drawable.ic_installed_site))
+                .setIntent(launch)
+                .build();
+        boolean requested = manager.requestPinShortcut(shortcut, null);
+        Toast.makeText(this, requested
+                        ? "Confirme a instalação na tela inicial"
+                        : "Não foi possível solicitar a instalação",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private void clearVideoCache() {
+        VideoHistory.clear(this);
+        VideoCache.get(this).clearAsync(() -> runOnUiThread(() ->
+                Toast.makeText(this, "Cache de vídeos apagado", Toast.LENGTH_SHORT).show()));
+        Toast.makeText(this, "Limpando cache de vídeos…", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showAutoDnsPanel() {
+        new AlertDialog.Builder(this)
+                .setTitle("DNS automático")
+                .setMessage(autoDnsManager.status() + "\n\n"
+                        + "O Nautrix testa 20 servidores com três consultas e combina "
+                        + "latência, variação e falhas. O DNS do sistema é usado como fallback.")
+                .setPositiveButton("Otimizar agora", (dialog, which) -> {
+                    Toast.makeText(this, "Testando servidores DNS…", Toast.LENGTH_SHORT).show();
+                    autoDnsManager.benchmarkAsync(true, () -> Toast.makeText(
+                            this, autoDnsManager.status(), Toast.LENGTH_LONG).show());
+                })
+                .setNegativeButton("Fechar", null)
+                .show();
     }
 
     private static String decodeJavascriptResult(String rawResult) {
@@ -902,6 +1017,7 @@ public final class BrowserActivity extends Activity {
         @Override
         public void onReceivedTitle(WebView view, String title) {
             tab.title = title;
+            if (webAppMode && isCurrent(tab) && title != null) setTitle(title);
         }
 
         @Override

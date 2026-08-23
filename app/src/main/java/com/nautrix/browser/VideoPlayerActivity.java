@@ -26,8 +26,8 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
-import androidx.media3.datasource.DefaultDataSource;
-import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -37,6 +37,9 @@ import androidx.media3.ui.PlayerView;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.OkHttpClient;
 
 /** Dedicated Media3 player with actionable buffering and network feedback. */
 public final class VideoPlayerActivity extends Activity {
@@ -195,10 +198,14 @@ public final class VideoPlayerActivity extends Activity {
 
     private void initializePlayer() {
         if (player != null) return;
-        DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15_000)
-                .setReadTimeoutMs(20_000);
+        OkHttpClient httpClient = new OkHttpClient.Builder()
+                .dns(hostname -> AutoDnsManager.get(this).resolveAll(hostname))
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build();
+        OkHttpDataSource.Factory httpFactory = new OkHttpDataSource.Factory(httpClient);
         if (userAgent != null && !userAgent.isEmpty()) httpFactory.setUserAgent(userAgent);
 
         Map<String, String> headers = new HashMap<>();
@@ -206,7 +213,7 @@ public final class VideoPlayerActivity extends Activity {
         if (cookie != null && !cookie.isEmpty()) headers.put("Cookie", cookie);
         if (!headers.isEmpty()) httpFactory.setDefaultRequestProperties(headers);
 
-        DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(this, httpFactory);
+        DataSource.Factory dataSourceFactory = VideoCache.get(this).dataSourceFactory(httpFactory);
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(15_000, 60_000, 1_500, 3_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
@@ -303,7 +310,9 @@ public final class VideoPlayerActivity extends Activity {
     private void showReadyState(String message) {
         stopBufferingTicker();
         int percentage = player == null ? 0 : player.getBufferedPercentage();
-        setStatus(message, "Buffer " + percentage + "%", false, false);
+        String readyMessage = !isOnline() && hasPlayed ? "Reproduzindo do cache offline" : message;
+        setStatus(readyMessage, "Buffer " + percentage + "% • cache local "
+                + formatCacheSize(VideoCache.get(this).sizeBytes()), false, false);
         setBufferProgress(percentage);
     }
 
@@ -312,7 +321,7 @@ public final class VideoPlayerActivity extends Activity {
         String message = isOnline() ? "Erro ao carregar o vídeo" : "Sem conexão com a internet";
         String detail = isOnline()
                 ? "O servidor recusou ou interrompeu o vídeo • " + error.getErrorCodeName()
-                : "Verifique o Wi-Fi ou os dados móveis";
+                : "Os trechos já carregados ficam disponíveis; avance somente dentro do cache";
         setStatus(message, detail, true, true);
         bufferProgress.setIndeterminate(false);
         bufferProgress.setProgress(0);
@@ -361,6 +370,11 @@ public final class VideoPlayerActivity extends Activity {
     private static String cleanHeader(String value) {
         if (value == null) return null;
         return value.replace("\r", "").replace("\n", "").trim();
+    }
+
+    private static String formatCacheSize(long bytes) {
+        if (bytes < 1_024L * 1_024L) return Math.max(0L, bytes / 1_024L) + " KB";
+        return (bytes / (1_024L * 1_024L)) + " MB";
     }
 
     private int dp(int value) {

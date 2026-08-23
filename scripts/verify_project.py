@@ -16,6 +16,13 @@ REQUIRED = [
     "app/src/main/java/com/nautrix/browser/AdBlockEngine.java",
     "app/src/main/java/com/nautrix/browser/PlaybackStatusPolicy.java",
     "app/src/main/java/com/nautrix/browser/VideoPlayerActivity.java",
+    "app/src/main/java/com/nautrix/browser/VideoCache.java",
+    "app/src/main/java/com/nautrix/browser/VideoHistory.java",
+    "app/src/main/java/com/nautrix/browser/AutoDnsManager.java",
+    "app/src/main/java/com/nautrix/browser/LocalHttpProxy.java",
+    "app/src/main/java/com/nautrix/browser/InstalledSiteActivity.java",
+    "app/src/main/java/com/nautrix/browser/DnsScorePolicy.java",
+    "app/src/main/res/drawable/ic_installed_site.xml",
     "native/adblock_android/Cargo.toml",
     "native/adblock_android/src/lib.rs",
     ".github/workflows/android-apks.yml",
@@ -49,6 +56,9 @@ def main() -> int:
         "shouldInterceptRequest",
         "openVideoPlayer(",
         "VideoPlayerActivity.createIntent",
+        "installCurrentSite(",
+        "showCachedVideos(",
+        "showAutoDnsPanel(",
     ]:
         require(capability in activity, f"browser capability missing: {capability}")
 
@@ -70,8 +80,27 @@ def main() -> int:
     )
     require("Servidor do site lento!" in status_policy, "slow-server feedback missing")
 
+    video_cache = (ROOT / "app/src/main/java/com/nautrix/browser/VideoCache.java").read_text(
+        encoding="utf-8"
+    )
+    for capability in ["SimpleCache", "NoOpCacheEvictor", "MIN_RETENTION_MS", "5L * 24L"]:
+        require(capability in video_cache, f"video cache capability missing: {capability}")
+
+    auto_dns = (ROOT / "app/src/main/java/com/nautrix/browser/AutoDnsManager.java").read_text(
+        encoding="utf-8"
+    )
+    for capability in ["CANDIDATES", "benchmarkAsync", "resolveAll", "ProxyController", "20 servidores"]:
+        require(capability in auto_dns, f"automatic DNS capability missing: {capability}")
+    require(auto_dns.count("new Candidate(") >= 20, "automatic DNS needs at least 20 candidates")
+
+    shortcut = (ROOT / "app/src/main/java/com/nautrix/browser/InstalledSiteActivity.java").read_text(
+        encoding="utf-8"
+    )
+    require("BrowserActivity" in shortcut, "installed-site activity missing")
+
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
-    for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash", "media3-ui"]:
+    for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash",
+                   "media3-datasource-okhttp", "media3-ui", "androidx.webkit"]:
         require(module in gradle, f"Media3 module missing: {module}")
     print("Nautrix source contract: OK")
     return 0

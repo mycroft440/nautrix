@@ -16,12 +16,28 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 - player dedicado com Media3/ExoPlayer para MP4, WebM, HLS e DASH;
 - detecção de vídeos na página, preservando cookies, referência e user-agent da sessão;
 - feedback de conexão, buffer, falta de internet, erro e aviso **“Servidor do site lento!”**;
+- cache persistente durante a reprodução, com retenção mínima de 5 dias e lista **Vídeos em cache** para rever offline os trechos já carregados;
+- DNS automático: mede 20 resolvedores com três amostras, pontua latência, variação e falhas e aplica o vencedor ao WebView e ao player;
+- instalação de páginas HTTPS na tela inicial, abertas como app sem as barras do navegador;
 - tema escuro.
 
 Para usar o player, abra uma página com vídeo e selecione **Menu → Abrir vídeo no player**.
 O Nautrix tenta usar a fonte do elemento de vídeo ou um stream de mídia detectado durante o
 carregamento da página. Conteúdo protegido por DRM ou exposto somente como URL `blob:` pode
 continuar limitado ao player do próprio site.
+
+O cache é preenchido conforme o vídeo toca ou entra no buffer. Sem internet, apenas os trechos já
+armazenados podem ser reproduzidos; o Nautrix não afirma ter baixado as partes que nunca foram
+recebidas. O app não remove conteúdo com menos de 5 dias, salvo se o usuário limpar os dados ou o
+cache pelo menu.
+
+Em **Menu → DNS automático**, é possível ver o resolvedor escolhido e executar um novo teste. O
+proxy é local ao processo do Nautrix e mantém o TLS entre o WebView e o site; se DNS externo estiver
+bloqueado pela rede, o navegador volta automaticamente ao resolvedor do Android.
+
+Em **Menu → Instalar página como app**, o Android pede confirmação para adicionar um ícone à tela
+inicial. O atalho abre a página em uma atividade própria, sem a barra de endereço e a navegação do
+Nautrix.
 
 Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado exato de cada item.
 
@@ -49,7 +65,7 @@ Sem esses secrets, o workflow cria uma chave temporária de CI. O APK será inst
 
 ## Build local
 
-Requisitos: Java 17, Android SDK 35, NDK 27.2, Rust estável, `cargo-ndk` 4.1.2 e Gradle 8.9.
+Requisitos: Java 17, Android SDK 36, NDK 27.2, Rust estável, `cargo-ndk` 4.1.2 e Gradle 8.11.1.
 
 ```bash
 cd native/adblock_android

@@ -17,6 +17,9 @@
 | Player de vídeo | Pronta | Media3/ExoPlayer, MP4/WebM/HLS/DASH, controles nativos, retomada e buffer ampliado |
 | Diagnóstico do vídeo | Pronta | Detecta conexão, buffering e falhas; avisa “Servidor do site lento!” após 8 s iniciais ou 5 s de rebuffer |
 | Sessão no player | Pronta | Repassa HTTPS, cookies, referer e user-agent usados pelo site |
+| Cache de vídeo offline | Pronta | `SimpleCache` persistente; retém por no mínimo 5 dias e reabre, pela lista do menu, os trechos efetivamente carregados |
+| DNS automático | Pronta | 20 resolvedores, três amostras por candidato, pontuação por média/jitter/falhas, proxy CONNECT local para WebView e DNS direto no player |
+| Instalar página como app | Pronta | `requestPinShortcut`, ícone por site e atividade HTTPS independente sem chrome do navegador |
 | APK debug | Pronta no CI | Assinado automaticamente pelo Android Gradle Plugin |
 | APK release | Pronta no CI | Usa secrets de produção; sem secrets, recebe chave temporária de CI instalável |
 
@@ -27,6 +30,9 @@
 - DoH personalizado depende do provedor WebView/sistema e ainda não tem seletor próprio no app.
 - Torrent/magnet é entregue a um aplicativo externo instalado. O serviço libtorrent antigo permanece apenas como overlay experimental.
 - O player dedicado não contorna DRM nem fontes disponíveis exclusivamente como `blob:`. Nesses casos, o vídeo permanece no player WebView do site.
+- O cache offline não inventa dados ausentes: se somente parte do vídeo foi recebida, somente essa parte é reproduzível sem rede. Limpar dados do Android ou usar “Limpar cache de vídeos” remove o conteúdo antes dos 5 dias por decisão do usuário.
+- O DNS automático usa consultas DNS públicas clássicas e um túnel CONNECT local; o TLS HTTPS continua de ponta a ponta. Se a operadora bloquear DNS externo ou o WebView não aceitar override de proxy, o fallback é o DNS configurado no Android.
+- A instalação de página cria um app/atalho hospedado pelo Nautrix; não converte o site em APK separado e depende de um launcher compatível com atalhos fixados.
 - A assinatura temporária do CI serve para instalação e testes. Atualizações distribuídas publicamente precisam usar sempre a mesma chave configurada nos secrets.
 
 ## Material Chromium experimental preservado
