@@ -60,14 +60,15 @@ jobs:
         run: cargo test --manifest-path native/adblock_android/Cargo.toml
 
       - name: Build adblock-rust for Android
+        working-directory: native/adblock_android
         run: |
           cargo install cargo-ndk --version 4.1.2 --locked
           cargo ndk \
             --target arm64-v8a \
             --target armeabi-v7a \
             --target x86_64 \
-            --output-dir app/src/main/jniLibs \
-            build --release --manifest-path native/adblock_android/Cargo.toml
+            --output-dir ../../app/src/main/jniLibs \
+            build --release
 
       - name: Prepare release signing
         env:

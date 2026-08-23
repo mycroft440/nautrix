@@ -44,12 +44,14 @@ Sem esses secrets, o workflow cria uma chave temporária de CI. O APK será inst
 Requisitos: Java 17, Android SDK 35, NDK 27.2, Rust estável, `cargo-ndk` 4.1.2 e Gradle 8.9.
 
 ```bash
+cd native/adblock_android
 cargo ndk \
   --target arm64-v8a \
   --target armeabi-v7a \
   --target x86_64 \
-  --output-dir app/src/main/jniLibs \
-  build --release --manifest-path native/adblock_android/Cargo.toml
+  --output-dir ../../app/src/main/jniLibs \
+  build --release
+cd ../..
 
 gradle testDebugUnitTest assembleDebug
 ```
