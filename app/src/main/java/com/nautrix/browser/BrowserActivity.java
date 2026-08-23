@@ -7,6 +7,7 @@ import android.app.DownloadManager;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -83,7 +84,8 @@ public final class BrowserActivity extends Activity {
         preferences = getSharedPreferences("nautrix", MODE_PRIVATE);
         adBlockEngine = new AdBlockEngine(this);
         adBlockEngine.initialize();
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        WebView.setWebContentsDebuggingEnabled(debuggable);
         buildInterface();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {

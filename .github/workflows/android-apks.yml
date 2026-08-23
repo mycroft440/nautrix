@@ -87,7 +87,7 @@ jobs:
           else
             STORE_PASSWORD="nautrix-ci-store"
             KEY_ALIAS="nautrix-ci"
-            KEY_PASSWORD="nautrix-ci-key"
+            KEY_PASSWORD="$STORE_PASSWORD"
             keytool -genkeypair -noprompt \
               -keystore "$KEYSTORE_FILE" \
               -storepass "$STORE_PASSWORD" \
