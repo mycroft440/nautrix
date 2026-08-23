@@ -458,15 +458,16 @@ public class BrowserActivity extends Activity {
     private void showMediaDownloadPicker() {
         BrowserTab tab = currentTab();
         WebView webView = tab.webView;
-        String script = "(function(){var out=[];var add=function(u){try{"
+        String script = "(function(){var out=[];var add=function(u,explicit){try{"
                 + "var a=new URL(u,location.href).href;if(/^https:\\/\\//i.test(a)"
-                + "&&/\\.(mp4|webm|m4v|mov|m3u8|mpd)([?#]|$)/i.test(a))out.push(a);"
+                + "&&(explicit||/\\.(mp4|webm|m4v|mov|m3u8|mpd)([?#]|$)/i.test(a)))out.push(a);"
                 + "}catch(e){}};document.querySelectorAll('video,video source').forEach(function(v){"
-                + "add(v.currentSrc);add(v.src);add(v.getAttribute&&v.getAttribute('src'));});"
+                + "add(v.currentSrc,true);add(v.src,true);"
+                + "add(v.getAttribute&&v.getAttribute('src'),true);});"
                 + "document.querySelectorAll(\"meta[property='og:video'],meta[property='og:video:url'],"
                 + "meta[name='twitter:player:stream'],a[href]\").forEach(function(v){"
-                + "add(v.content||v.href);});try{performance.getEntriesByType('resource')"
-                + ".forEach(function(v){add(v.name);});}catch(e){}"
+                + "add(v.content||v.href,!!v.content);});try{performance.getEntriesByType('resource')"
+                + ".forEach(function(v){add(v.name,false);});}catch(e){}"
                 + "return JSON.stringify(Array.from(new Set(out)).slice(0,30));})()";
         webView.evaluateJavascript(script, rawResult -> {
             String encoded = decodeJavascriptResult(rawResult);
@@ -744,7 +745,8 @@ public class BrowserActivity extends Activity {
         if (lower.contains(".webm")) return "video/webm";
         if (lower.contains(".mov")) return "video/quicktime";
         if (lower.contains(".m4v")) return "video/x-m4v";
-        return "video/mp4";
+        if (lower.contains(".mp4")) return "video/mp4";
+        return null;
     }
 
     private void openExternally() {
@@ -1210,7 +1212,7 @@ public class BrowserActivity extends Activity {
         }
 
         synchronized void rememberMedia(String url) {
-            if (!isLikelyVideoUrl(url) || url.startsWith("blob:")) return;
+            if (url == null || !url.startsWith("https://") || url.startsWith("blob:")) return;
             mediaUrls.remove(url);
             mediaUrls.add(url);
             while (mediaUrls.size() > 30) {
