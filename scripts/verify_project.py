@@ -21,8 +21,12 @@ REQUIRED = [
     "app/src/main/java/com/nautrix/browser/AutoDnsManager.java",
     "app/src/main/java/com/nautrix/browser/LocalHttpProxy.java",
     "app/src/main/java/com/nautrix/browser/InstalledSiteActivity.java",
+    "app/src/main/java/com/nautrix/browser/DownloadRegistry.java",
+    "app/src/main/java/com/nautrix/browser/DownloadManagerActivity.java",
+    "app/src/main/java/com/nautrix/browser/TorrentService.java",
     "app/src/main/java/com/nautrix/browser/DnsScorePolicy.java",
     "app/src/main/res/drawable/ic_installed_site.xml",
+    "app/src/main/res/xml/file_paths.xml",
     "native/adblock_android/Cargo.toml",
     "native/adblock_android/src/lib.rs",
     ".github/workflows/android-apks.yml",
@@ -59,6 +63,9 @@ def main() -> int:
         "installCurrentSite(",
         "showCachedVideos(",
         "showAutoDnsPanel(",
+        "showMediaDownloadPicker(",
+        "openDownloadManager(",
+        "confirmMagnet(",
     ]:
         require(capability in activity, f"browser capability missing: {capability}")
 
@@ -93,6 +100,18 @@ def main() -> int:
         require(capability in auto_dns, f"automatic DNS capability missing: {capability}")
     require(auto_dns.count("new Candidate(") >= 20, "automatic DNS needs at least 20 candidates")
 
+    download_manager = (ROOT / "app/src/main/java/com/nautrix/browser/DownloadManagerActivity.java").read_text(
+        encoding="utf-8"
+    )
+    for capability in ["DownloadRegistry", "TorrentService", "Adicionar magnet", "Abrir .torrent"]:
+        require(capability in download_manager, f"download manager capability missing: {capability}")
+
+    torrent_service = (ROOT / "app/src/main/java/com/nautrix/browser/TorrentService.java").read_text(
+        encoding="utf-8"
+    )
+    for capability in ["SessionManager", "TorrentInfo", "addMagnet", "status.isPaused()"]:
+        require(capability in torrent_service, f"torrent capability missing: {capability}")
+
     shortcut = (ROOT / "app/src/main/java/com/nautrix/browser/InstalledSiteActivity.java").read_text(
         encoding="utf-8"
     )
@@ -100,7 +119,7 @@ def main() -> int:
 
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
     for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash",
-                   "media3-datasource-okhttp", "media3-ui", "androidx.webkit"]:
+                   "media3-datasource-okhttp", "media3-ui", "androidx.webkit", "jlibtorrent"]:
         require(module in gradle, f"Media3 module missing: {module}")
     print("Nautrix source contract: OK")
     return 0

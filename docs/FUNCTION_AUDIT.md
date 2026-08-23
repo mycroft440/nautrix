@@ -6,7 +6,8 @@
 |---|---|---|
 | Navegação web | Pronta | WebView do sistema, barra de endereço, pesquisa DuckDuckGo, voltar/avançar/recarregar/início |
 | Abas | Pronta | Criar, alternar, fechar e restaurar até 12 abas da sessão |
-| Downloads | Pronta | DownloadManager, cookies e user-agent da sessão, operação em segundo plano |
+| Downloads | Pronta | Central própria sobre o DownloadManager, cookies/referer/user-agent, progresso, abrir, cancelar e repetir |
+| Torrent/magnet | Pronta | jlibtorrent/libtorrent v1, v2 e híbrido; magnet, `.torrent`, pausa, retomada, remoção preservando arquivos e restauração da lista |
 | Upload de arquivos | Pronta | Seletor de documentos do Android |
 | Favoritos | Pronta | Salvos localmente e acessíveis pelo menu |
 | Compartilhamento | Pronta | Android Sharesheet |
@@ -17,6 +18,7 @@
 | Player de vídeo | Pronta | Media3/ExoPlayer, MP4/WebM/HLS/DASH, controles nativos, retomada e buffer ampliado |
 | Diagnóstico do vídeo | Pronta | Detecta conexão, buffering e falhas; avisa “Servidor do site lento!” após 8 s iniciais ou 5 s de rebuffer |
 | Sessão no player | Pronta | Repassa HTTPS, cookies, referer e user-agent usados pelo site |
+| Download de mídia detectada | Pronta com limites | Botão superior detecta MP4/WebM/MOV/M4V e HLS/DASH expostos no DOM, metadados ou rede; fontes diretas vão para Downloads e streams adaptativos para player/cache |
 | Cache de vídeo offline | Pronta | `SimpleCache` persistente; retém por no mínimo 5 dias e reabre, pela lista do menu, os trechos efetivamente carregados |
 | DNS automático | Pronta | 20 resolvedores, três amostras por candidato, pontuação por média/jitter/falhas, proxy CONNECT local para WebView e DNS direto no player |
 | Instalar página como app | Pronta | `requestPinShortcut`, ícone por site e atividade HTTPS independente sem chrome do navegador |
@@ -28,7 +30,8 @@
 - O aplicativo compilável usa o Android System WebView. Ele não inclui uma cópia completa do Chromium.
 - Extensões Manifest V3 não são suportadas pelo System WebView.
 - DoH personalizado depende do provedor WebView/sistema e ainda não tem seletor próprio no app.
-- Torrent/magnet é entregue a um aplicativo externo instalado. O serviço libtorrent antigo permanece apenas como overlay experimental.
+- O cliente torrent salva em armazenamento externo administrado pelo app. A central permite abrir arquivos individuais; desinstalar o Nautrix pode apagar essa pasta. O Android 15 limita serviços `dataSync` longos e pode interromper a sessão, que é restaurada ao reabrir a central.
+- O botão de mídia não é um mecanismo universal de extração: não burla DRM, paywall, login, assinatura, URLs `blob:` protegidas nem controles de acesso. Plataformas que separam faixas ou ocultam a URL podem oferecer somente reprodução/cache dos dados efetivamente recebidos.
 - O player dedicado não contorna DRM nem fontes disponíveis exclusivamente como `blob:`. Nesses casos, o vídeo permanece no player WebView do site.
 - O cache offline não inventa dados ausentes: se somente parte do vídeo foi recebida, somente essa parte é reproduzível sem rede. Limpar dados do Android ou usar “Limpar cache de vídeos” remove o conteúdo antes dos 5 dias por decisão do usuário.
 - O DNS automático usa consultas DNS públicas clássicas e um túnel CONNECT local; o TLS HTTPS continua de ponta a ponta. Se a operadora bloquear DNS externo ou o WebView não aceitar override de proxy, o fallback é o DNS configurado no Android.

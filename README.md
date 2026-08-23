@@ -6,7 +6,8 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 
 - navegação por HTTPS e pesquisa DuckDuckGo;
 - múltiplas abas com restauração da sessão;
-- downloads em segundo plano pelo DownloadManager;
+- central de downloads com progresso, tamanho, abrir, cancelar e tentar novamente;
+- cliente torrent interno baseado em libtorrent, com magnet, arquivos `.torrent`, pausa e retomada;
 - upload de arquivos;
 - favoritos, compartilhamento e modo desktop;
 - câmera e microfone somente após autorização do Android e do usuário;
@@ -15,6 +16,7 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 - proteção ativável/desativável por site e contador de bloqueios por aba;
 - player dedicado com Media3/ExoPlayer para MP4, WebM, HLS e DASH;
 - detecção de vídeos na página, preservando cookies, referência e user-agent da sessão;
+- botão **⇩** no canto superior para baixar fontes MP4/WebM/MOV expostas pela página ou abrir HLS/DASH no player/cache;
 - feedback de conexão, buffer, falta de internet, erro e aviso **“Servidor do site lento!”**;
 - cache persistente durante a reprodução, com retenção mínima de 5 dias e lista **Vídeos em cache** para rever offline os trechos já carregados;
 - DNS automático: mede 20 resolvedores com três amostras, pontua latência, variação e falhas e aplica o vencedor ao WebView e ao player;
@@ -25,6 +27,19 @@ Para usar o player, abra uma página com vídeo e selecione **Menu → Abrir ví
 O Nautrix tenta usar a fonte do elemento de vídeo ou um stream de mídia detectado durante o
 carregamento da página. Conteúdo protegido por DRM ou exposto somente como URL `blob:` pode
 continuar limitado ao player do próprio site.
+
+O botão **⇩** examina elementos de vídeo, metadados e solicitações de mídia que a página já
+expôs ao navegador. Fontes diretas podem ser salvas em `Downloads/Nautrix`; streams HLS/DASH são
+abertos no player e entram no cache conforme são recebidos. O Nautrix não burla DRM, paywalls,
+login, URLs `blob:` protegidas nem controles de acesso, por isso não promete compatibilidade com
+todo vídeo de toda rede social.
+
+Em **Menu → Downloads**, a mesma tela acompanha downloads diretos e torrents. Magnets podem ser
+colados e arquivos `.torrent` escolhidos pelo seletor do Android. Torrents continuam em primeiro
+plano com notificação, podem ser pausados ou retomados e salvam dados em uma pasta administrada
+pelo app, acessível pela seção **Arquivos de torrents**. No Android 15 ou superior, o sistema pode
+interromper serviços de dados muito longos; reabrir a central restaura a sessão e verifica as partes
+já gravadas.
 
 O cache é preenchido conforme o vídeo toca ou entra no buffer. Sem internet, apenas os trechos já
 armazenados podem ser reproduzidos; o Nautrix não afirma ter baixado as partes que nunca foram
@@ -43,7 +58,8 @@ Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado 
 
 ## Build pelo GitHub Actions
 
-O workflow **Android APKs** executa testes, compila o motor Rust para ARM64, ARMv7 e x86_64, gera os APKs e verifica suas assinaturas.
+O workflow **Android APKs** executa testes, compila o motor Rust para ARM64, ARMv7 e x86_64,
+integra as bibliotecas libtorrent correspondentes, gera os APKs e verifica suas assinaturas.
 
 Artefatos gerados:
 

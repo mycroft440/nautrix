@@ -52,8 +52,10 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -160,6 +162,8 @@ public class BrowserActivity extends Activity {
         addressParams.setMargins(dp(4), 0, dp(4), 0);
         toolbar.addView(addressBar, addressParams);
         toolbar.addView(actionButton("→", "Abrir", view -> loadAddressBar()));
+        toolbar.addView(actionButton("⇩", "Baixar mídia detectada",
+                view -> showMediaDownloadPicker()));
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
         if (webAppMode) toolbar.setVisibility(View.GONE);
@@ -263,8 +267,15 @@ public class BrowserActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
         webView.setWebViewClient(new NautrixWebViewClient(tab));
         webView.setWebChromeClient(new NautrixChromeClient(tab));
-        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) ->
-                beginDownload(new PendingDownload(url, userAgent, contentDisposition, mimeType)));
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> {
+            String referer = webView.getUrl();
+            if (isTorrentSource(url, mimeType)) {
+                confirmRemoteTorrent(url, userAgent, referer);
+            } else {
+                beginDownload(new PendingDownload(
+                        url, userAgent, contentDisposition, mimeType, referer));
+            }
+        });
     }
 
     private void selectTab(int index) {
@@ -319,6 +330,7 @@ public class BrowserActivity extends Activity {
         menu.getMenu().add("Adicionar favorito");
         menu.getMenu().add("Favoritos");
         menu.getMenu().add("Compartilhar");
+        menu.getMenu().add("Downloads");
         menu.getMenu().add("Abrir vídeo no player");
         menu.getMenu().add("Vídeos em cache");
         menu.getMenu().add("Instalar página como app");
@@ -334,6 +346,7 @@ public class BrowserActivity extends Activity {
             else if ("Adicionar favorito".equals(title)) addBookmark();
             else if ("Favoritos".equals(title)) showBookmarks();
             else if ("Compartilhar".equals(title)) sharePage();
+            else if ("Downloads".equals(title)) openDownloadManager();
             else if ("Abrir vídeo no player".equals(title)) openVideoPlayer();
             else if ("Vídeos em cache".equals(title)) showCachedVideos();
             else if ("Instalar página como app".equals(title)) installCurrentSite();
@@ -438,6 +451,127 @@ public class BrowserActivity extends Activity {
         startActivity(Intent.createChooser(share, "Compartilhar página"));
     }
 
+    private void openDownloadManager() {
+        startActivity(new Intent(this, DownloadManagerActivity.class));
+    }
+
+    private void showMediaDownloadPicker() {
+        BrowserTab tab = currentTab();
+        WebView webView = tab.webView;
+        String script = "(function(){var out=[];var add=function(u){try{"
+                + "var a=new URL(u,location.href).href;if(/^https:\\/\\//i.test(a)"
+                + "&&/\\.(mp4|webm|m4v|mov|m3u8|mpd)([?#]|$)/i.test(a))out.push(a);"
+                + "}catch(e){}};document.querySelectorAll('video,video source').forEach(function(v){"
+                + "add(v.currentSrc);add(v.src);add(v.getAttribute&&v.getAttribute('src'));});"
+                + "document.querySelectorAll(\"meta[property='og:video'],meta[property='og:video:url'],"
+                + "meta[name='twitter:player:stream'],a[href]\").forEach(function(v){"
+                + "add(v.content||v.href);});try{performance.getEntriesByType('resource')"
+                + ".forEach(function(v){add(v.name);});}catch(e){}"
+                + "return JSON.stringify(Array.from(new Set(out)).slice(0,30));})()";
+        webView.evaluateJavascript(script, rawResult -> {
+            String encoded = decodeJavascriptResult(rawResult);
+            try {
+                JSONArray found = new JSONArray(encoded.isEmpty() ? "[]" : encoded);
+                for (int index = 0; index < found.length(); index++) {
+                    tab.rememberMedia(found.optString(index, ""));
+                }
+            } catch (Exception ignored) {
+            }
+            List<String> candidates = tab.mediaSnapshot();
+            if (candidates.isEmpty()) {
+                new AlertDialog.Builder(this)
+                        .setTitle("Baixar mídia")
+                        .setMessage("Nenhuma fonte direta de vídeo foi detectada. Inicie o vídeo "
+                                + "na página e tente novamente. DRM e fontes blob protegidas não "
+                                + "podem ser extraídos pelo Nautrix.")
+                        .setPositiveButton("Abrir downloads",
+                                (dialog, which) -> openDownloadManager())
+                        .setNegativeButton("Fechar", null)
+                        .show();
+                return;
+            }
+            String[] labels = new String[candidates.size()];
+            for (int index = 0; index < candidates.size(); index++) {
+                labels[index] = mediaLabel(candidates.get(index));
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("Mídia detectada")
+                    .setMessage("Escolha uma fonte exposta pela página. Conteúdo protegido não é contornado.")
+                    .setItems(labels, (dialog, which) -> handleMediaCandidate(candidates.get(which)))
+                    .setPositiveButton("Downloads", (dialog, which) -> openDownloadManager())
+                    .setNegativeButton("Cancelar", null)
+                    .show();
+        });
+    }
+
+    private String mediaLabel(String url) {
+        Uri uri = Uri.parse(url);
+        String host = uri.getHost() == null ? "mídia" : uri.getHost();
+        String path = uri.getLastPathSegment();
+        if (path == null || path.isEmpty()) path = "stream";
+        if (path.length() > 54) path = path.substring(0, 54) + "…";
+        return (isAdaptiveVideoUrl(url) ? "Stream HLS/DASH" : "Vídeo direto")
+                + "\n" + host + " • " + path;
+    }
+
+    private void handleMediaCandidate(String url) {
+        WebView webView = currentWebView();
+        String referer = webView.getUrl();
+        String userAgent = webView.getSettings().getUserAgentString();
+        if (isAdaptiveVideoUrl(url)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Stream adaptativo")
+                    .setMessage("HLS/DASH usa muitos segmentos e pode ter áudio e vídeo separados. "
+                            + "O player do Nautrix armazenará no cache offline os trechos recebidos; "
+                            + "não será criado um arquivo incompleto fingindo ser vídeo.")
+                    .setPositiveButton("Abrir no player",
+                            (dialog, which) -> launchVideoPlayer(url, referer, userAgent))
+                    .setNegativeButton("Cancelar", null)
+                    .show();
+            return;
+        }
+        String mime = mimeForVideoUrl(url);
+        new AlertDialog.Builder(this)
+                .setTitle("Baixar vídeo?")
+                .setMessage(mediaLabel(url) + "\n\nO arquivo será salvo em Downloads/Nautrix.")
+                .setPositiveButton("Baixar", (dialog, which) -> beginDownload(
+                        new PendingDownload(url, userAgent, null, mime, referer)))
+                .setNeutralButton("Abrir no player",
+                        (dialog, which) -> launchVideoPlayer(url, referer, userAgent))
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void confirmRemoteTorrent(String url, String userAgent, String referer) {
+        new AlertDialog.Builder(this)
+                .setTitle("Adicionar torrent?")
+                .setMessage("O arquivo .torrent será aberto no gerenciador interno. Baixe somente "
+                        + "conteúdo que você tem autorização para usar.")
+                .setPositiveButton("Adicionar", (dialog, which) -> {
+                    String cookie = CookieManager.getInstance().getCookie(url);
+                    TorrentService.addTorrentUrl(this, url, userAgent, cookie, referer);
+                    openDownloadManager();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void confirmMagnet(String magnet) {
+        new AlertDialog.Builder(this)
+                .setTitle("Adicionar magnet?")
+                .setMessage("O torrent será baixado pelo gerenciador interno. Use somente conteúdo autorizado.")
+                .setPositiveButton("Adicionar", (dialog, which) -> {
+                    try {
+                        TorrentService.addMagnet(this, magnet);
+                        openDownloadManager();
+                    } catch (Exception error) {
+                        Toast.makeText(this, "Magnet inválido", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
     private void openVideoPlayer() {
         BrowserTab tab = currentTab();
         WebView webView = tab.webView;
@@ -454,7 +588,7 @@ public class BrowserActivity extends Activity {
         webView.evaluateJavascript(script, rawResult -> {
             String discovered = decodeJavascriptResult(rawResult);
             if (discovered == null || discovered.isEmpty() || discovered.startsWith("blob:")) {
-                discovered = tab.lastMediaUrl;
+                discovered = tab.lastMediaUrl();
             }
             if (discovered == null || discovered.isEmpty()) {
                 Toast.makeText(this,
@@ -593,6 +727,26 @@ public class BrowserActivity extends Activity {
                 || lower.contains(".mov"));
     }
 
+    private static boolean isAdaptiveVideoUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains(".m3u8") || lower.contains(".mpd");
+    }
+
+    private static boolean isTorrentSource(String url, String mimeType) {
+        String lowerUrl = url == null ? "" : url.toLowerCase(java.util.Locale.ROOT);
+        String lowerMime = mimeType == null ? "" : mimeType.toLowerCase(java.util.Locale.ROOT);
+        return lowerUrl.contains(".torrent") || lowerMime.contains("bittorrent");
+    }
+
+    private static String mimeForVideoUrl(String url) {
+        String lower = url == null ? "" : url.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains(".webm")) return "video/webm";
+        if (lower.contains(".mov")) return "video/quicktime";
+        if (lower.contains(".m4v")) return "video/x-m4v";
+        return "video/mp4";
+    }
+
     private void openExternally() {
         String url = currentWebView().getUrl();
         if (url == null) return;
@@ -645,21 +799,10 @@ public class BrowserActivity extends Activity {
             }
             String name = URLUtil.guessFileName(download.url, download.contentDisposition,
                     download.mimeType);
-            DownloadManager.Request request = new DownloadManager.Request(uri)
-                    .setTitle(name)
-                    .setMimeType(download.mimeType)
-                    .setNotificationVisibility(
-                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setAllowedOverMetered(true)
-                    .setAllowedOverRoaming(false)
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
-            if (download.userAgent != null) request.addRequestHeader("User-Agent", download.userAgent);
-            String cookie = CookieManager.getInstance().getCookie(download.url);
-            if (cookie != null) request.addRequestHeader("Cookie", cookie);
-            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            if (manager == null) throw new IllegalStateException("DownloadManager unavailable");
-            manager.enqueue(request);
-            Toast.makeText(this, "Download iniciado", Toast.LENGTH_SHORT).show();
+            DownloadRegistry.enqueue(this, download.url, download.userAgent,
+                    download.contentDisposition, download.mimeType, download.referer);
+            Toast.makeText(this, "Download iniciado • acompanhe em Downloads",
+                    Toast.LENGTH_SHORT).show();
         } catch (Exception error) {
             Toast.makeText(this, "Não foi possível iniciar o download", Toast.LENGTH_LONG).show();
         }
@@ -921,8 +1064,12 @@ public class BrowserActivity extends Activity {
                 }
                 return true;
             }
+            if ("magnet".equalsIgnoreCase(scheme)) {
+                confirmMagnet(uri.toString());
+                return true;
+            }
             if ("mailto".equalsIgnoreCase(scheme) || "tel".equalsIgnoreCase(scheme)
-                    || "market".equalsIgnoreCase(scheme) || "magnet".equalsIgnoreCase(scheme)) {
+                    || "market".equalsIgnoreCase(scheme)) {
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception error) {
@@ -937,7 +1084,7 @@ public class BrowserActivity extends Activity {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             String requestUrl = request.getUrl().toString();
-            if (isLikelyVideoUrl(requestUrl)) tab.lastMediaUrl = requestUrl;
+            if (isLikelyVideoUrl(requestUrl)) tab.rememberMedia(requestUrl);
             if (adBlockEngine.shouldBlock(request, tab.pageUrl)) {
                 tab.blockedRequests.incrementAndGet();
                 runOnUiThread(() -> updateShieldCounter(tab));
@@ -951,6 +1098,7 @@ public class BrowserActivity extends Activity {
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             tab.pageUrl = url;
             tab.blockedRequests.set(0);
+            tab.clearMedia();
             if (isCurrent(tab)) {
                 updateAddress(url);
                 progressBar.setVisibility(View.VISIBLE);
@@ -1054,11 +1202,36 @@ public class BrowserActivity extends Activity {
         String title = "Nova aba";
         boolean desktop;
         volatile String pageUrl;
-        volatile String lastMediaUrl;
+        final LinkedHashSet<String> mediaUrls = new LinkedHashSet<>();
         final AtomicInteger blockedRequests = new AtomicInteger();
 
         BrowserTab(WebView webView) {
             this.webView = webView;
+        }
+
+        synchronized void rememberMedia(String url) {
+            if (!isLikelyVideoUrl(url) || url.startsWith("blob:")) return;
+            mediaUrls.remove(url);
+            mediaUrls.add(url);
+            while (mediaUrls.size() > 30) {
+                mediaUrls.remove(mediaUrls.iterator().next());
+            }
+        }
+
+        synchronized void clearMedia() {
+            mediaUrls.clear();
+        }
+
+        synchronized List<String> mediaSnapshot() {
+            ArrayList<String> result = new ArrayList<>(mediaUrls);
+            Collections.reverse(result);
+            return result;
+        }
+
+        synchronized String lastMediaUrl() {
+            String last = null;
+            for (String value : mediaUrls) last = value;
+            return last;
         }
     }
 
@@ -1067,12 +1240,15 @@ public class BrowserActivity extends Activity {
         final String userAgent;
         final String contentDisposition;
         final String mimeType;
+        final String referer;
 
-        PendingDownload(String url, String userAgent, String contentDisposition, String mimeType) {
+        PendingDownload(String url, String userAgent, String contentDisposition, String mimeType,
+                        String referer) {
             this.url = url;
             this.userAgent = userAgent;
             this.contentDisposition = contentDisposition;
             this.mimeType = mimeType;
+            this.referer = referer;
         }
     }
 }
