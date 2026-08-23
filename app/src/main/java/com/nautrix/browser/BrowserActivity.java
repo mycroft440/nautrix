@@ -301,6 +301,7 @@ public final class BrowserActivity extends Activity {
         menu.getMenu().add("Adicionar favorito");
         menu.getMenu().add("Favoritos");
         menu.getMenu().add("Compartilhar");
+        menu.getMenu().add("Abrir vídeo no player");
         menu.getMenu().add(currentTab().desktop ? "Usar versão móvel" : "Versão para computador");
         menu.getMenu().add("Abrir no aplicativo externo");
         menu.getMenu().add("Limpar dados de navegação");
@@ -311,6 +312,7 @@ public final class BrowserActivity extends Activity {
             else if ("Adicionar favorito".equals(title)) addBookmark();
             else if ("Favoritos".equals(title)) showBookmarks();
             else if ("Compartilhar".equals(title)) sharePage();
+            else if ("Abrir vídeo no player".equals(title)) openVideoPlayer();
             else if (title.contains("versão")) toggleDesktopMode();
             else if ("Abrir no aplicativo externo".equals(title)) openExternally();
             else if ("Limpar dados de navegação".equals(title)) confirmClearData();
@@ -408,6 +410,72 @@ public final class BrowserActivity extends Activity {
                 .setType("text/plain")
                 .putExtra(Intent.EXTRA_TEXT, url);
         startActivity(Intent.createChooser(share, "Compartilhar página"));
+    }
+
+    private void openVideoPlayer() {
+        BrowserTab tab = currentTab();
+        WebView webView = tab.webView;
+        String pageUrl = webView.getUrl();
+        if (isLikelyVideoUrl(pageUrl)) {
+            launchVideoPlayer(pageUrl, pageUrl, webView.getSettings().getUserAgentString());
+            return;
+        }
+
+        String script = "(function(){var v=document.querySelector('video');"
+                + "if(!v)return '';var u=v.currentSrc||v.src||'';"
+                + "if(!u){var s=v.querySelector('source[src]');u=s?s.src:'';}"
+                + "return u||'';})()";
+        webView.evaluateJavascript(script, rawResult -> {
+            String discovered = decodeJavascriptResult(rawResult);
+            if (discovered == null || discovered.isEmpty() || discovered.startsWith("blob:")) {
+                discovered = tab.lastMediaUrl;
+            }
+            if (discovered == null || discovered.isEmpty()) {
+                Toast.makeText(this,
+                        "Nenhum vídeo compatível foi encontrado nesta página",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            launchVideoPlayer(discovered, pageUrl, webView.getSettings().getUserAgentString());
+        });
+    }
+
+    private void launchVideoPlayer(String videoUrl, String referer, String userAgent) {
+        Uri videoUri;
+        try {
+            videoUri = Uri.parse(videoUrl);
+        } catch (Exception error) {
+            videoUri = null;
+        }
+        if (videoUri == null || !"https".equalsIgnoreCase(videoUri.getScheme())) {
+            Toast.makeText(this, "Este vídeo não oferece uma fonte HTTPS compatível",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        String cookie = CookieManager.getInstance().getCookie(videoUrl);
+        if ((cookie == null || cookie.isEmpty()) && referer != null) {
+            cookie = CookieManager.getInstance().getCookie(referer);
+        }
+        startActivity(VideoPlayerActivity.createIntent(
+                this, videoUrl, referer, userAgent, cookie));
+    }
+
+    private static String decodeJavascriptResult(String rawResult) {
+        if (rawResult == null || "null".equals(rawResult) || "undefined".equals(rawResult)) return "";
+        try {
+            return new JSONArray("[" + rawResult + "]").optString(0, "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static boolean isLikelyVideoUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("https://") && (lower.contains(".m3u8")
+                || lower.contains(".mpd") || lower.contains(".mp4")
+                || lower.contains(".webm") || lower.contains(".m4v")
+                || lower.contains(".mov"));
     }
 
     private void openExternally() {
@@ -753,6 +821,8 @@ public final class BrowserActivity extends Activity {
 
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            String requestUrl = request.getUrl().toString();
+            if (isLikelyVideoUrl(requestUrl)) tab.lastMediaUrl = requestUrl;
             if (adBlockEngine.shouldBlock(request, tab.pageUrl)) {
                 tab.blockedRequests.incrementAndGet();
                 runOnUiThread(() -> updateShieldCounter(tab));
@@ -868,6 +938,7 @@ public final class BrowserActivity extends Activity {
         String title = "Nova aba";
         boolean desktop;
         volatile String pageUrl;
+        volatile String lastMediaUrl;
         final AtomicInteger blockedRequests = new AtomicInteger();
 
         BrowserTab(WebView webView) {

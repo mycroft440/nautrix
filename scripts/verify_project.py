@@ -14,6 +14,8 @@ REQUIRED = [
     "app/src/main/AndroidManifest.xml",
     "app/src/main/java/com/nautrix/browser/BrowserActivity.java",
     "app/src/main/java/com/nautrix/browser/AdBlockEngine.java",
+    "app/src/main/java/com/nautrix/browser/PlaybackStatusPolicy.java",
+    "app/src/main/java/com/nautrix/browser/VideoPlayerActivity.java",
     "native/adblock_android/Cargo.toml",
     "native/adblock_android/src/lib.rs",
     ".github/workflows/android-apks.yml",
@@ -45,6 +47,8 @@ def main() -> int:
         "toggleDesktopMode(",
         "onSafeBrowsingHit",
         "shouldInterceptRequest",
+        "openVideoPlayer(",
+        "VideoPlayerActivity.createIntent",
     ]:
         require(capability in activity, f"browser capability missing: {capability}")
 
@@ -54,6 +58,21 @@ def main() -> int:
 
     cargo = (ROOT / "native/adblock_android/Cargo.toml").read_text(encoding="utf-8")
     require('adblock = { version = "=0.13.3"' in cargo, "adblock-rust version must be pinned")
+
+    player = (ROOT / "app/src/main/java/com/nautrix/browser/VideoPlayerActivity.java").read_text(
+        encoding="utf-8"
+    )
+    for capability in ["ExoPlayer", "STATE_BUFFERING", "PlaybackStatusPolicy", "Cookie"]:
+        require(capability in player, f"video player capability missing: {capability}")
+
+    status_policy = (ROOT / "app/src/main/java/com/nautrix/browser/PlaybackStatusPolicy.java").read_text(
+        encoding="utf-8"
+    )
+    require("Servidor do site lento!" in status_policy, "slow-server feedback missing")
+
+    gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
+    for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash", "media3-ui"]:
+        require(module in gradle, f"Media3 module missing: {module}")
     print("Nautrix source contract: OK")
     return 0
 

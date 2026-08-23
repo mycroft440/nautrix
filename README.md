@@ -13,7 +13,15 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 - Safe Browsing, bloqueio de TLS inválido, sem tráfego HTTP em texto claro;
 - bloqueio nativo com o motor [`brave/adblock-rust`](https://github.com/brave/adblock-rust), EasyList, EasyPrivacy e filtros cosméticos;
 - proteção ativável/desativável por site e contador de bloqueios por aba;
+- player dedicado com Media3/ExoPlayer para MP4, WebM, HLS e DASH;
+- detecção de vídeos na página, preservando cookies, referência e user-agent da sessão;
+- feedback de conexão, buffer, falta de internet, erro e aviso **“Servidor do site lento!”**;
 - tema escuro.
+
+Para usar o player, abra uma página com vídeo e selecione **Menu → Abrir vídeo no player**.
+O Nautrix tenta usar a fonte do elemento de vídeo ou um stream de mídia detectado durante o
+carregamento da página. Conteúdo protegido por DRM ou exposto somente como URL `blob:` pode
+continuar limitado ao player do próprio site.
 
 Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado exato de cada item.
 
