@@ -26,6 +26,7 @@ import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executors;
@@ -59,6 +60,7 @@ public final class TorrentService extends Service {
 
     private final Object sourceLock = new Object();
     private final ArrayList<String> sources = new ArrayList<>();
+    private final HashSet<Integer> pausedIndices = new HashSet<>();
     private ScheduledExecutorService worker;
     private SessionManager session;
     private boolean restored;
@@ -223,12 +225,21 @@ public final class TorrentService extends Service {
         TorrentHandle handle = handles[index];
         if (ACTION_PAUSE.equals(action)) {
             handle.pause();
+            pausedIndices.add(index);
             serviceMessage = "Torrent pausado";
         } else if (ACTION_RESUME.equals(action)) {
             handle.resume();
+            pausedIndices.remove(index);
             serviceMessage = "Torrent retomado";
         } else if (ACTION_REMOVE.equals(action)) {
             session.remove(handle);
+            HashSet<Integer> adjusted = new HashSet<>();
+            for (int paused : pausedIndices) {
+                if (paused < index) adjusted.add(paused);
+                else if (paused > index) adjusted.add(paused - 1);
+            }
+            pausedIndices.clear();
+            pausedIndices.addAll(adjusted);
             synchronized (sourceLock) {
                 if (index < sources.size()) sources.remove(index);
                 saveSources();
@@ -337,7 +348,8 @@ public final class TorrentService extends Service {
                 snapshots.add(new Snapshot(index, name, Math.max(0f, Math.min(1f, status.progress())),
                         rate, Math.max(0L, status.uploadRate()), status.numPeers(),
                         Math.max(0L, status.totalDone()), Math.max(0L, status.totalWanted()),
-                        status.isPaused(), status.isFinished(), String.valueOf(status.state())));
+                        pausedIndices.contains(index), status.isFinished(),
+                        String.valueOf(status.state())));
             }
             latest = Collections.unmodifiableList(snapshots);
             if (snapshots.isEmpty()) serviceMessage = "Nenhum torrent ativo";

@@ -109,7 +109,7 @@ def main() -> int:
     torrent_service = (ROOT / "app/src/main/java/com/nautrix/browser/TorrentService.java").read_text(
         encoding="utf-8"
     )
-    for capability in ["SessionManager", "TorrentInfo", "addMagnet", "status.isPaused()"]:
+    for capability in ["SessionManager", "TorrentInfo", "addMagnet", "handle.pause()"]:
         require(capability in torrent_service, f"torrent capability missing: {capability}")
 
     shortcut = (ROOT / "app/src/main/java/com/nautrix/browser/InstalledSiteActivity.java").read_text(
