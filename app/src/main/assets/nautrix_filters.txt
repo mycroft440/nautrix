@@ -1,0 +1,14 @@
+! Nautrix starter protection. Full EasyList + EasyPrivacy are refreshed in the background.
+||doubleclick.net^
+||googlesyndication.com^
+||google-analytics.com^
+||googletagmanager.com^
+||facebook.net^$third-party
+||amazon-adsystem.com^$third-party
+||adnxs.com^
+||criteo.com^$third-party
+||criteo.net^$third-party
+||taboola.com^$third-party
+##.advertisement
+##.sponsored-content
+##[aria-label="Advertisement"]

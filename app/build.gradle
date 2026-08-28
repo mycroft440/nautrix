@@ -1,0 +1,78 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+}
+
+android {
+    namespace "com.nautrix.browser"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.nautrix.browser"
+        minSdk 26
+        targetSdk 35
+        versionCode 4
+        versionName "0.4.0"
+
+        testInstrumentationRunner "android.test.InstrumentationTestRunner"
+    }
+
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv("NAUTRIX_KEYSTORE_FILE")
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("NAUTRIX_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("NAUTRIX_KEY_ALIAS")
+                keyPassword System.getenv("NAUTRIX_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            if (System.getenv("NAUTRIX_KEYSTORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs += ["-Xjvm-default=all"]
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    def media3Version = "1.11.0"
+    def jlibtorrentVersion = "2.0.12.9"
+    implementation "androidx.core:core:1.16.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
+    implementation "androidx.media3:media3-exoplayer:$media3Version"
+    implementation "androidx.media3:media3-exoplayer-dash:$media3Version"
+    implementation "androidx.media3:media3-exoplayer-hls:$media3Version"
+    implementation "androidx.media3:media3-datasource-okhttp:$media3Version"
+    implementation "androidx.media3:media3-ui:$media3Version"
+    implementation "androidx.webkit:webkit:1.14.0"
+    implementation "com.frostwire:jlibtorrent:$jlibtorrentVersion"
+    implementation "com.frostwire:jlibtorrent-android-arm:$jlibtorrentVersion"
+    implementation "com.frostwire:jlibtorrent-android-arm64:$jlibtorrentVersion"
+    implementation "com.frostwire:jlibtorrent-android-x86_64:$jlibtorrentVersion"
+    testImplementation "junit:junit:4.13.2"
+}

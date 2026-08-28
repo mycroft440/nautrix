@@ -1,0 +1,7 @@
+<resources>
+    <color name="nautrix_background">#0B1117</color>
+    <color name="nautrix_surface">#131C24</color>
+    <color name="nautrix_field">#1D2A35</color>
+    <color name="nautrix_text">#F3F7FA</color>
+    <color name="nautrix_accent">#43C6AC</color>
+</resources>

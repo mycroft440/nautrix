@@ -1,64 +1,105 @@
 # Nautrix Browser
 
-Nautrix is an Android-first Chromium browser project focused on a small base install, native privacy, extensions, advanced downloads and media playback.
+Nautrix agora contém um navegador Android standalone compilável, além dos overlays experimentais para uma futura distribuição completa baseada em Chromium.
 
-## Product principles
+## O que funciona no APK
 
-1. **Chromium upstream first** — keep custom code isolated so security updates can be rebased quickly.
-2. **Small by default** — ARM64 first; optional heavyweight features are modular.
-3. **Dark by default** — browser chrome ships in dark mode by default.
-4. **Privacy in the network path** — native ad/tracker filtering and secure DNS, not only extensions.
-5. **Media that survives connectivity changes** — persistent smart cache for already-received, non-DRM media.
-6. **No bypass of DRM or access controls** — media features operate on content the browser is allowed to receive/store.
+- navegação por HTTPS e pesquisa DuckDuckGo;
+- múltiplas abas com restauração da sessão;
+- central de downloads com progresso, tamanho, abrir, cancelar e tentar novamente;
+- cliente torrent interno baseado em libtorrent, com magnet, arquivos `.torrent`, pausa e retomada;
+- upload de arquivos;
+- favoritos, compartilhamento e modo desktop;
+- câmera e microfone somente após autorização do Android e do usuário;
+- Safe Browsing, bloqueio de TLS inválido, sem tráfego HTTP em texto claro;
+- bloqueio nativo com o motor [`brave/adblock-rust`](https://github.com/brave/adblock-rust), EasyList, EasyPrivacy e filtros cosméticos;
+- proteção ativável/desativável por site e contador de bloqueios por aba;
+- player dedicado com Media3/ExoPlayer para MP4, WebM, HLS e DASH;
+- detecção de vídeos na página, preservando cookies, referência e user-agent da sessão;
+- botão **⇩** no canto superior para baixar fontes MP4/WebM/MOV expostas pela página ou abrir HLS/DASH no player/cache;
+- feedback de conexão, buffer, falta de internet, erro e aviso **“Servidor do site lento!”**;
+- cache persistente durante a reprodução, com retenção mínima de 5 dias e lista **Vídeos em cache** para rever offline os trechos já carregados;
+- DNS automático: mede 20 resolvedores com três amostras, pontua latência, variação e falhas e aplica o vencedor ao WebView e ao player;
+- instalação de páginas HTTPS na tela inicial, abertas como app sem as barras do navegador;
+- tema escuro.
 
-## Requested feature set
+Para usar o player, abra uma página com vídeo e selecione **Menu → Abrir vídeo no player**.
+O Nautrix tenta usar a fonte do elemento de vídeo ou um stream de mídia detectado durante o
+carregamento da página. Conteúdo protegido por DRM ou exposto somente como URL `blob:` pode
+continuar limitado ao player do próprio site.
 
-- Chromium Android, ARM64 first.
-- Manifest V3 extension support using Chromium's experimental Extensions Core / desktop-Android work.
-- Dark theme by default.
-- Native ad/tracker blocker, planned around `brave/adblock-rust`.
-- Secure DNS (DoH), manual provider selection, plus automatic benchmarking by real DNS resolution latency/stability.
-- Download manager with pause/resume/background operation.
-- Torrent/magnet support planned as an optional libtorrent module.
-- Media3/ExoPlayer-based native media player with background audio, MediaSession and Picture-in-Picture.
-- Persistent smart media cache: already-received media remains playable offline for 5 days after last access, subject to storage/DRM constraints.
-- Install pages as apps/PWAs.
-- Automatic tab lifecycle:
-  - never-used background tabs: close after 1 hour;
-  - used tabs: close after 5 days of inactivity;
-  - pinned, active-media, active-download and dirty-form tabs are protected.
+O botão **⇩** examina elementos de vídeo, metadados e solicitações de mídia que a página já
+expôs ao navegador. Fontes diretas podem ser salvas em `Downloads/Nautrix`; streams HLS/DASH são
+abertos no player e entram no cache conforme são recebidos. O Nautrix não burla DRM, paywalls,
+login, URLs `blob:` protegidas nem controles de acesso, por isso não promete compatibilidade com
+todo vídeo de toda rede social.
 
-## Repository model
+Em **Menu → Downloads**, a mesma tela acompanha downloads diretos e torrents. Magnets podem ser
+colados e arquivos `.torrent` escolhidos pelo seletor do Android. Torrents continuam em primeiro
+plano com notificação, podem ser pausados ou retomados e salvam dados em uma pasta administrada
+pelo app, acessível pela seção **Arquivos de torrents**. No Android 15 ou superior, o sistema pode
+interromper serviços de dados muito longos; reabrir a central restaura a sessão e verifica as partes
+já gravadas.
 
-This repository is intentionally **not a copy of the whole Chromium source tree**. Chromium is huge and changes constantly. Nautrix keeps:
+O cache é preenchido conforme o vídeo toca ou entra no buffer. Sem internet, apenas os trechos já
+armazenados podem ser reproduzidos; o Nautrix não afirma ter baixado as partes que nunca foram
+recebidas. O app não remove conteúdo com menos de 5 dias, salvo se o usuário limpar os dados ou o
+cache pelo menu.
 
-- `overlays/chromium/` — Nautrix-owned source files copied into a Chromium checkout;
-- `patches/` — narrow upstream patches when overlay-only integration is impossible;
-- `config/` — GN build args;
-- `scripts/` — bootstrap/apply/build helpers;
-- `docs/` — architecture and implementation status;
-- `tests/` — fast tests for Nautrix policy code that do not require a full Chromium build.
+Em **Menu → DNS automático**, é possível ver o resolvedor escolhido e executar um novo teste. O
+proxy é local ao processo do Nautrix e mantém o TLS entre o WebView e o site; se DNS externo estiver
+bloqueado pela rede, o navegador volta automaticamente ao resolvedor do Android.
 
-## Current state
+Em **Menu → Instalar página como app**, o Android pede confirmação para adicionar um ícone à tela
+inicial. O atalho abre a página em uma atividade própria, sem a barra de endereço e a navegação do
+Nautrix.
 
-**Phase 0 / foundation.** The initial repository contains working policy code and tests for tab retention, media-cache retention and automatic DNS scoring, plus Chromium bootstrap/build scaffolding and native feature skeletons.
+Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado exato de cada item.
 
-The full Chromium browser, extensions UI, adblock-rust FFI, libtorrent and Media3 integration still need to be wired into upstream Chromium.
+## Build pelo GitHub Actions
 
-## Quick policy test
+O workflow **Android APKs** executa testes, compila o motor Rust para ARM64, ARMv7 e x86_64,
+integra as bibliotecas libtorrent correspondentes, gera os APKs e verifica suas assinaturas.
+
+Artefatos gerados:
+
+- `Nautrix-debug/Nautrix-debug.apk`
+- `Nautrix-release/Nautrix-release.apk`
+
+O workflow roda em todo push na `main` e também pode ser iniciado por **Actions → Android APKs → Run workflow**.
+
+### Assinatura release
+
+Para uma assinatura permanente de produção, configure estes secrets no repositório:
+
+- `NAUTRIX_RELEASE_KEYSTORE_BASE64`
+- `NAUTRIX_RELEASE_STORE_PASSWORD`
+- `NAUTRIX_RELEASE_KEY_ALIAS`
+- `NAUTRIX_RELEASE_KEY_PASSWORD`
+
+Sem esses secrets, o workflow cria uma chave temporária de CI. O APK será instalável, mas não deve ser publicado nem usado para atualizar uma versão anterior.
+
+## Build local
+
+Requisitos: Java 17, Android SDK 36, NDK 27.2, Rust estável, `cargo-ndk` 4.1.2 e Gradle 8.11.1.
 
 ```bash
-./scripts/test_policy_core.sh
+cd native/adblock_android
+cargo ndk \
+  --target arm64-v8a \
+  --target armeabi-v7a \
+  --target x86_64 \
+  --output-dir ../../app/src/main/jniLibs \
+  build --release
+cd ../..
+
+gradle testDebugUnitTest assembleDebug
 ```
 
-## Bootstrap Chromium
+## Estrutura
 
-Requires a Linux x86-64 machine with enough disk/RAM for Chromium development.
-
-```bash
-./scripts/bootstrap_chromium.sh /path/to/work
-./scripts/apply_overlays.sh /path/to/work/chromium/src
-./scripts/build_android.sh /path/to/work/chromium/src
-```
-
-The default build target is `chrome_public_apk` and the default Nautrix target CPU is ARM64.
+- `app/` — navegador Android standalone;
+- `native/adblock_android/` — JNI do motor Brave adblock-rust usado pelo APK;
+- `overlays/chromium/` — pesquisa/integrações experimentais preservadas;
+- `native/adblock_ffi/` — FFI anterior para uma árvore Chromium completa;
+- `scripts/verify_project.py` — validação rápida do contrato do projeto.
