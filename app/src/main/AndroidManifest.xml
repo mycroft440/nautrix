@@ -54,6 +54,12 @@
         <activity
             android:name=".BrowserActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask" />
+
+        <activity
+            android:name=".ModernBrowserActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask">
             <intent-filter>
