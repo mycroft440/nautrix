@@ -29,10 +29,11 @@ import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -54,12 +55,13 @@ public final class TorrentService extends Service {
     private static final String ACTION_RESUME = "com.nautrix.browser.RESUME_TORRENT";
     private static final String ACTION_REMOVE = "com.nautrix.browser.REMOVE_TORRENT";
     private static final String EXTRA_SOURCE = "source";
-    private static final String EXTRA_KEY = "torrent_key";
+    private static final String EXTRA_INDEX = "index";
     private static final String EXTRA_USER_AGENT = "user_agent";
     private static final String EXTRA_COOKIE = "cookie";
     private static final String EXTRA_REFERER = "referer";
 
     private static volatile List<Snapshot> latest = Collections.emptyList();
+    private static volatile Map<Integer, String> commandKeys = Collections.emptyMap();
     private static volatile String serviceMessage = "Nenhum torrent ativo";
 
     private final Object sourceLock = new Object();
@@ -99,16 +101,17 @@ public final class TorrentService extends Service {
         start(context, intent);
     }
 
-    public static void pause(Context context, String key) {
-        command(context, ACTION_PAUSE, key);
+    /** The UI token resolves to an info-hash; it is not an array position. */
+    public static void pause(Context context, int token) {
+        command(context, ACTION_PAUSE, token);
     }
 
-    public static void resume(Context context, String key) {
-        command(context, ACTION_RESUME, key);
+    public static void resume(Context context, int token) {
+        command(context, ACTION_RESUME, token);
     }
 
-    public static void remove(Context context, String key) {
-        command(context, ACTION_REMOVE, key);
+    public static void remove(Context context, int token) {
+        command(context, ACTION_REMOVE, token);
     }
 
     public static List<Snapshot> snapshots() {
@@ -127,10 +130,10 @@ public final class TorrentService extends Service {
         return directory;
     }
 
-    private static void command(Context context, String action, String key) {
-        if (key == null || key.isEmpty()) return;
+    private static void command(Context context, String action, int token) {
+        if (!commandKeys.containsKey(token)) return;
         start(context, new Intent(context, TorrentService.class)
-                .setAction(action).putExtra(EXTRA_KEY, key));
+                .setAction(action).putExtra(EXTRA_INDEX, token));
     }
 
     private static void start(Context context, Intent intent) {
@@ -173,7 +176,8 @@ public final class TorrentService extends Service {
                         intent.getStringExtra(EXTRA_COOKIE), intent.getStringExtra(EXTRA_REFERER));
                 addSource(file.getAbsolutePath());
             } else {
-                control(action, intent.getStringExtra(EXTRA_KEY));
+                int token = intent.getIntExtra(EXTRA_INDEX, Integer.MIN_VALUE);
+                control(action, commandKeys.get(token));
             }
             refresh();
         } catch (Exception error) {
@@ -367,6 +371,19 @@ public final class TorrentService extends Service {
         return hex.toString();
     }
 
+    private static int tokenForKey(Map<Integer, String> commands, String key) {
+        if (key == null || key.isEmpty()) return Integer.MIN_VALUE;
+        int token = key.hashCode();
+        while (true) {
+            String existing = commands.get(token);
+            if (existing == null || existing.equals(key)) {
+                commands.put(token, key);
+                return token;
+            }
+            token++;
+        }
+    }
+
     private File copyTorrent(Uri uri) throws Exception {
         File metadata = metadataDirectory();
         File target = new File(metadata, "torrent-" + System.currentTimeMillis() + ".torrent");
@@ -457,6 +474,7 @@ public final class TorrentService extends Service {
         try {
             TorrentHandle[] handles = current.getTorrentHandles();
             ArrayList<Snapshot> snapshots = new ArrayList<>();
+            HashMap<Integer, String> commands = new HashMap<>();
             long totalRate = 0L;
             for (TorrentHandle handle : handles) {
                 TorrentStatus status = handle.status();
@@ -465,12 +483,15 @@ public final class TorrentService extends Service {
                 long rate = Math.max(0L, status.downloadRate());
                 totalRate += rate;
                 String key = stableHandleKey(handle);
-                snapshots.add(new Snapshot(key, name, Math.max(0f, Math.min(1f, status.progress())),
+                int token = tokenForKey(commands, key);
+                snapshots.add(new Snapshot(token, key, name,
+                        Math.max(0f, Math.min(1f, status.progress())),
                         rate, Math.max(0L, status.uploadRate()), status.numPeers(),
                         Math.max(0L, status.totalDone()), Math.max(0L, status.totalWanted()),
                         !key.isEmpty() && pausedKeys.contains(key), status.isFinished(),
                         String.valueOf(status.state())));
             }
+            commandKeys = Collections.unmodifiableMap(commands);
             latest = Collections.unmodifiableList(snapshots);
             if (snapshots.isEmpty()) serviceMessage = "Nenhum torrent ativo";
             else serviceMessage = snapshots.size() + " torrent(s) • " + formatRate(totalRate);
@@ -536,11 +557,14 @@ public final class TorrentService extends Service {
         SessionManager current = session;
         session = null;
         if (current != null) new Thread(current::stop, "NautrixTorrentStop").start();
+        commandKeys = Collections.emptyMap();
         latest = Collections.emptyList();
         super.onDestroy();
     }
 
     public static final class Snapshot {
+        /** Backward-compatible UI token; internally maps to {@link #key}. */
+        public final int index;
         public final String key;
         public final String name;
         public final float progress;
@@ -553,9 +577,10 @@ public final class TorrentService extends Service {
         public final boolean finished;
         public final String state;
 
-        Snapshot(String key, String name, float progress, long downloadRate, long uploadRate,
-                 int peers, long downloaded, long total, boolean paused, boolean finished,
-                 String state) {
+        Snapshot(int index, String key, String name, float progress, long downloadRate,
+                 long uploadRate, int peers, long downloaded, long total, boolean paused,
+                 boolean finished, String state) {
+            this.index = index;
             this.key = key;
             this.name = name;
             this.progress = progress;
