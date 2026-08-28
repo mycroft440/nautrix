@@ -110,7 +110,7 @@ class ModernBrowserActivity : BrowserActivity() {
             setPadding(dp(2), 0, dp(4), 0)
             minWidth = 0
             minHeight = 0
-            selectAllOnFocus = true
+            setSelectAllOnFocus(true)
             setHorizontallyScrolling(true)
         }
         addressCapsule.addView(address, LinearLayout.LayoutParams(0, dp(44), 1f))
