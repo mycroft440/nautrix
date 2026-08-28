@@ -13,6 +13,8 @@ import android.os.Environment;
 import android.os.IBinder;
 
 import com.frostwire.jlibtorrent.SessionManager;
+import com.frostwire.jlibtorrent.Sha1Hash;
+import com.frostwire.jlibtorrent.Sha256Hash;
 import com.frostwire.jlibtorrent.TorrentHandle;
 import com.frostwire.jlibtorrent.TorrentInfo;
 import com.frostwire.jlibtorrent.TorrentStatus;
@@ -20,6 +22,7 @@ import com.frostwire.jlibtorrent.swig.torrent_flags_t;
 
 import org.json.JSONArray;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -29,6 +32,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -50,7 +54,7 @@ public final class TorrentService extends Service {
     private static final String ACTION_RESUME = "com.nautrix.browser.RESUME_TORRENT";
     private static final String ACTION_REMOVE = "com.nautrix.browser.REMOVE_TORRENT";
     private static final String EXTRA_SOURCE = "source";
-    private static final String EXTRA_INDEX = "index";
+    private static final String EXTRA_KEY = "torrent_key";
     private static final String EXTRA_USER_AGENT = "user_agent";
     private static final String EXTRA_COOKIE = "cookie";
     private static final String EXTRA_REFERER = "referer";
@@ -60,7 +64,7 @@ public final class TorrentService extends Service {
 
     private final Object sourceLock = new Object();
     private final ArrayList<String> sources = new ArrayList<>();
-    private final HashSet<Integer> pausedIndices = new HashSet<>();
+    private final HashSet<String> pausedKeys = new HashSet<>();
     private ScheduledExecutorService worker;
     private SessionManager session;
     private boolean restored;
@@ -95,16 +99,16 @@ public final class TorrentService extends Service {
         start(context, intent);
     }
 
-    public static void pause(Context context, int index) {
-        command(context, ACTION_PAUSE, index);
+    public static void pause(Context context, String key) {
+        command(context, ACTION_PAUSE, key);
     }
 
-    public static void resume(Context context, int index) {
-        command(context, ACTION_RESUME, index);
+    public static void resume(Context context, String key) {
+        command(context, ACTION_RESUME, key);
     }
 
-    public static void remove(Context context, int index) {
-        command(context, ACTION_REMOVE, index);
+    public static void remove(Context context, String key) {
+        command(context, ACTION_REMOVE, key);
     }
 
     public static List<Snapshot> snapshots() {
@@ -123,9 +127,10 @@ public final class TorrentService extends Service {
         return directory;
     }
 
-    private static void command(Context context, String action, int index) {
+    private static void command(Context context, String action, String key) {
+        if (key == null || key.isEmpty()) return;
         start(context, new Intent(context, TorrentService.class)
-                .setAction(action).putExtra(EXTRA_INDEX, index));
+                .setAction(action).putExtra(EXTRA_KEY, key));
     }
 
     private static void start(Context context, Intent intent) {
@@ -168,7 +173,7 @@ public final class TorrentService extends Service {
                         intent.getStringExtra(EXTRA_COOKIE), intent.getStringExtra(EXTRA_REFERER));
                 addSource(file.getAbsolutePath());
             } else {
-                control(action, intent.getIntExtra(EXTRA_INDEX, -1));
+                control(action, intent.getStringExtra(EXTRA_KEY));
             }
             refresh();
         } catch (Exception error) {
@@ -219,33 +224,147 @@ public final class TorrentService extends Service {
         }
     }
 
-    private void control(String action, int index) {
-        TorrentHandle[] handles = session.getTorrentHandles();
-        if (index < 0 || index >= handles.length) return;
-        TorrentHandle handle = handles[index];
+    /** Controls a torrent by its info-hash, never by session array position. */
+    private void control(String action, String key) {
+        TorrentHandle handle = findHandle(key);
+        if (handle == null) return;
         if (ACTION_PAUSE.equals(action)) {
             handle.pause();
-            pausedIndices.add(index);
+            pausedKeys.add(key);
             serviceMessage = "Torrent pausado";
         } else if (ACTION_RESUME.equals(action)) {
             handle.resume();
-            pausedIndices.remove(index);
+            pausedKeys.remove(key);
             serviceMessage = "Torrent retomado";
         } else if (ACTION_REMOVE.equals(action)) {
-            session.remove(handle);
-            HashSet<Integer> adjusted = new HashSet<>();
-            for (int paused : pausedIndices) {
-                if (paused < index) adjusted.add(paused);
-                else if (paused > index) adjusted.add(paused - 1);
-            }
-            pausedIndices.clear();
-            pausedIndices.addAll(adjusted);
+            String stableKey = stableHandleKey(handle);
             synchronized (sourceLock) {
-                if (index < sources.size()) sources.remove(index);
+                removePersistedSource(stableKey);
                 saveSources();
             }
+            pausedKeys.remove(stableKey);
+            pausedKeys.remove(key);
+            session.remove(handle);
             serviceMessage = "Torrent removido; os arquivos baixados foram preservados";
         }
+    }
+
+    private TorrentHandle findHandle(String key) {
+        if (key == null || key.isEmpty()) return null;
+        TorrentHandle[] handles = session.getTorrentHandles();
+        for (TorrentHandle handle : handles) {
+            if (key.equals(stableHandleKey(handle))) return handle;
+        }
+        return null;
+    }
+
+    private static String stableHandleKey(TorrentHandle handle) {
+        if (handle == null) return "";
+        try {
+            TorrentStatus status = handle.status();
+            String v2 = hashKey("v2:", status.infoHashV2());
+            if (v2 != null) return v2;
+            String v1 = hashKey("v1:", status.infoHashV1());
+            return v1 == null ? "" : v1;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private void removePersistedSource(String key) {
+        if (key == null || key.isEmpty()) return;
+        for (int index = 0; index < sources.size(); index++) {
+            if (key.equals(stableSourceKey(sources.get(index)))) {
+                sources.remove(index);
+                return;
+            }
+        }
+    }
+
+    private static String stableSourceKey(String source) {
+        if (source == null || source.isEmpty()) return "";
+        try {
+            if (source.toLowerCase(Locale.ROOT).startsWith("magnet:?")) {
+                return stableMagnetKey(source);
+            }
+            File file = new File(source);
+            if (!file.isFile()) return "";
+            TorrentInfo info = new TorrentInfo(file);
+            String v2 = hashKey("v2:", info.infoHashV2());
+            if (v2 != null) return v2;
+            String v1 = hashKey("v1:", info.infoHashV1());
+            return v1 == null ? "" : v1;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String stableMagnetKey(String magnet) {
+        String encodedQuery = Uri.parse(magnet).getEncodedQuery();
+        if (encodedQuery == null || encodedQuery.isEmpty()) return "";
+        String v1 = null;
+        String v2 = null;
+        for (String part : encodedQuery.split("&")) {
+            int equals = part.indexOf('=');
+            if (equals <= 0) continue;
+            String name = Uri.decode(part.substring(0, equals));
+            if (!"xt".equalsIgnoreCase(name)) continue;
+            String value = Uri.decode(part.substring(equals + 1)).trim();
+            String lower = value.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("urn:btmh:1220")) {
+                String hex = lower.substring("urn:btmh:1220".length());
+                if (hex.matches("[0-9a-f]{64}")) v2 = "v2:" + hex;
+            } else if (lower.startsWith("urn:btih:")) {
+                String encodedHash = value.substring("urn:btih:".length());
+                if (encodedHash.matches("(?i)[0-9a-f]{40}")) {
+                    v1 = "v1:" + encodedHash.toLowerCase(Locale.ROOT);
+                } else if (encodedHash.matches("(?i)[a-z2-7]{32}")) {
+                    String hex = base32BtihToHex(encodedHash);
+                    if (hex != null) v1 = "v1:" + hex;
+                }
+            }
+        }
+        return v2 != null ? v2 : v1 == null ? "" : v1;
+    }
+
+    private static String hashKey(String prefix, Sha1Hash hash) {
+        if (hash == null) return null;
+        return normalizedHashKey(prefix, hash.toHex());
+    }
+
+    private static String hashKey(String prefix, Sha256Hash hash) {
+        if (hash == null) return null;
+        return normalizedHashKey(prefix, hash.toHex());
+    }
+
+    private static String normalizedHashKey(String prefix, String hex) {
+        if (hex == null || hex.isEmpty()) return null;
+        String lower = hex.toLowerCase(Locale.ROOT);
+        if (lower.matches("0+")) return null;
+        return prefix + lower;
+    }
+
+    private static String base32BtihToHex(String encoded) {
+        final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        ByteArrayOutputStream output = new ByteArrayOutputStream(20);
+        int buffer = 0;
+        int bits = 0;
+        for (int index = 0; index < encoded.length(); index++) {
+            int value = alphabet.indexOf(Character.toUpperCase(encoded.charAt(index)));
+            if (value < 0) return null;
+            buffer = (buffer << 5) | value;
+            bits += 5;
+            while (bits >= 8) {
+                bits -= 8;
+                output.write((buffer >> bits) & 0xff);
+                buffer &= bits == 0 ? 0 : (1 << bits) - 1;
+            }
+        }
+        byte[] bytes = output.toByteArray();
+        if (bytes.length != 20) return null;
+        StringBuilder hex = new StringBuilder(40);
+        for (byte value : bytes) hex.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+        return hex.toString();
     }
 
     private File copyTorrent(Uri uri) throws Exception {
@@ -339,16 +458,17 @@ public final class TorrentService extends Service {
             TorrentHandle[] handles = current.getTorrentHandles();
             ArrayList<Snapshot> snapshots = new ArrayList<>();
             long totalRate = 0L;
-            for (int index = 0; index < handles.length; index++) {
-                TorrentStatus status = handles[index].status();
+            for (TorrentHandle handle : handles) {
+                TorrentStatus status = handle.status();
                 String name = status.name();
                 if (name == null || name.trim().isEmpty()) name = "Obtendo metadados…";
                 long rate = Math.max(0L, status.downloadRate());
                 totalRate += rate;
-                snapshots.add(new Snapshot(index, name, Math.max(0f, Math.min(1f, status.progress())),
+                String key = stableHandleKey(handle);
+                snapshots.add(new Snapshot(key, name, Math.max(0f, Math.min(1f, status.progress())),
                         rate, Math.max(0L, status.uploadRate()), status.numPeers(),
                         Math.max(0L, status.totalDone()), Math.max(0L, status.totalWanted()),
-                        pausedIndices.contains(index), status.isFinished(),
+                        !key.isEmpty() && pausedKeys.contains(key), status.isFinished(),
                         String.valueOf(status.state())));
             }
             latest = Collections.unmodifiableList(snapshots);
@@ -421,7 +541,7 @@ public final class TorrentService extends Service {
     }
 
     public static final class Snapshot {
-        public final int index;
+        public final String key;
         public final String name;
         public final float progress;
         public final long downloadRate;
@@ -433,10 +553,10 @@ public final class TorrentService extends Service {
         public final boolean finished;
         public final String state;
 
-        Snapshot(int index, String name, float progress, long downloadRate, long uploadRate,
+        Snapshot(String key, String name, float progress, long downloadRate, long uploadRate,
                  int peers, long downloaded, long total, boolean paused, boolean finished,
                  String state) {
-            this.index = index;
+            this.key = key;
             this.name = name;
             this.progress = progress;
             this.downloadRate = downloadRate;
