@@ -1,23 +1,29 @@
 # Implementation status
 
-Legend: **implemented** = code path exists; **upstream** = intentionally delegated to Chromium; **build-gated** = implemented but requires optional native build input; **pending UI** = engine/API exists but custom Nautrix settings surface is not finished.
+Status terms are strict:
 
-| Area | Status | Notes |
+- **verified**: compiled or exercised by the named validation;
+- **static prototype**: source exists and fast checks pass, but it has not compiled inside Chromium;
+- **upstream capability found**: the pinned Chromium source contains the relevant API/UI path;
+- **pending**: no runtime claim is made.
+
+| Area | Current evidence | Next release gate |
 |---|---|---|
-| Chromium Android ARM64 | implemented / CI-gated | exact Chromium revision pinned; full APK compiles only in GitHub Actions |
-| Dark UI default | implemented | writes Chromium theme preference only when unset |
-| Android extensions | PASS static / upstream experimental | Chromium toolbar, popup, site access, Web Store, `chrome://extensions`, unpacked SAF flow and core MV3 APIs are capability-gated in CI |
-| Tab cleanup 1h/5d | implemented | persistent normal-tab metadata; pinned/media plus native active-download/unload protection; incognito metadata is never persisted |
-| Secure DNS modes | implemented / pending UI | System, benchmarked Automatic and secure custom mode; Chromium managed policy is respected |
-| Secure DNS automatic benchmark | implemented / pending UI | real DoH wire queries, median/P95/failure scoring and 10% hysteresis |
-| Network ad/tracker blocking | implemented / build-gated | URLLoaderThrottle covers normal + keepalive paths; Rust FFI supports blocking and removeparam URL rewrites; cached daily list updater |
-| Cosmetic/scriptlet filtering | engine API only | Rust FFI exposes resources; Blink injection is not yet wired |
-| Ordinary HTTP downloads | upstream | Chromium DownloadManager owns persistence/pause/resume; tab cleanup queries its real in-progress state |
-| HLS/DASH/direct media routing | implemented / pending UI | native Media3 player; HLS/DASH permanent downloads use Media3 DownloadService |
-| Background audio / MediaSession | implemented | MediaSessionService |
-| Picture-in-Picture | implemented | native PiP helper |
-| Smart media cache | implemented | separate persistent cache, per-segment access tracking, explicit retention scoring; permanent offline store is separate and never TTL-evicted |
-| Torrent / magnet | implemented / build-gated | libtorrent v2.1.1; magnet/.torrent, private fast-resume, native manager UI, file priorities, rate/connection limits, Wi-Fi-only, optional seeding; Android dataSync timeout saves state for later continuation |
-| Install page as app / PWA | implemented / upstream-assisted | Chromium WebAPK/PWA flow retained; explicit Install on an ordinary page is patched to create a standalone app-like launcher entry |
-| DRM/access-control bypass | intentionally unsupported | out of scope |
-| Full Chromium compile validation | GitHub Actions gate | automatic on relevant branch/PR changes; self-hosted Chromium runner required; APK uploaded as Actions artifact |
+| Secure WebView fallback | **verified in GitHub Actions** on `main` at `targetSdk 36` | Smoke test on a physical Android device |
+| Chromium Android ARM64 baseline | Bootstrap/build workflow prepared on `integration/chromium`; no successful Chromium APK yet | Sync pinned checkout/NDK and compile `chrome_public_apk` |
+| Android extensions | **upstream capability found** for the experimental desktop-Android flag, toolbar, install dialog and core APIs | Compile the flag, install CRX/unpacked MV3 samples, test permissions/update/removal |
+| Nautrix theme and tab lifecycle | **static prototype** overlay | Compile after the vanilla Chromium gate; add instrumentation |
+| Secure DNS automatic/manual modes | **static prototype** overlay | Compile and test real DoH failures, captive portals and managed policy |
+| Network ad/tracker blocking | **static prototype**, Rust unit checks only | Compile the URLLoader throttle and run request-level integration tests |
+| Cosmetic/scriptlet filtering | Engine API only | Wire and security-review renderer injection |
+| Ordinary HTTP downloads | Planned to retain Chromium DownloadManager | Runtime pause/resume/background tests |
+| HLS/DASH/direct media player | **static prototype** Media3 overlay | Compile; test MediaSession, PiP, seeking, rotation and process recreation |
+| Smart media cache/offline media | **static prototype** overlay | Compile; validate quota, eviction, DRM and corrupt segments |
+| Torrent/magnet | **static prototype**, optional libtorrent build path | Compile separately after Chromium baseline; test fast-resume and FGS limits |
+| Install page as app/PWA | Pinned Chromium contains upstream install/WebAPK paths; Nautrix ordinary-page patch is **static only** | Test manifest PWA and non-PWA fallback end to end |
+| DRM/access-control bypass | Intentionally unsupported | Remain out of scope |
+
+The previous full-build run did **not** reach GN generation or compilation. It stopped after
+dependency sync because the bootstrap treated an optional NDK CMake file as proof of the
+toolchain. The current workflow validates Chromium's actual LLVM sysroot contract and builds a
+vanilla APK before any Nautrix overlay is applied.

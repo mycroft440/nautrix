@@ -39,6 +39,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/integrate_chromium.py scripts/verify_repo.py
           bash -n scripts/bootstrap_chromium.sh scripts/apply_overlays.sh scripts/build_android.sh
+          bash -n scripts/build_vanilla_android.sh
           bash -n scripts/build_adblock_android.sh scripts/build_libtorrent_android.sh
 
   rust-adblock:

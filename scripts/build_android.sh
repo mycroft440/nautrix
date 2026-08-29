@@ -4,6 +4,13 @@ SRC="${1:?usage: build_android.sh /path/to/chromium/src [out-dir]}"
 OUT_NAME="${2:-Nautrix}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$SRC/DEPS" ]] || { echo "Not a Chromium src checkout: $SRC" >&2; exit 2; }
+DEPOT_TOOLS="${DEPOT_TOOLS_DIR:-$SRC/third_party/depot_tools}"
+[[ -x "$DEPOT_TOOLS/autoninja" ]] || {
+  echo "Pinned depot_tools checkout is unavailable at $DEPOT_TOOLS" >&2
+  exit 3
+}
+export DEPOT_TOOLS_UPDATE=0
+export PATH="$DEPOT_TOOLS:$PATH"
 "$ROOT/scripts/apply_overlays.sh" "$SRC"
 ARGS="$(cat "$ROOT/config/args.gn")"
 if [[ -n "${ANDROID_NDK_ROOT:-}" ]] && command -v cargo >/dev/null 2>&1; then

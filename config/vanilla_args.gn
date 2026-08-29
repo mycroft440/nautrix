@@ -1,0 +1,11 @@
+# Minimal upstream Chromium Android baseline. No Nautrix overlay or optional
+# module belongs in this build: it isolates checkout/toolchain/APK failures.
+target_os = "android"
+target_cpu = "arm64"
+is_debug = false
+is_component_build = false
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+android_static_analysis = "off"
+use_remoteexec = false

@@ -8,9 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
-    "README.md", "config/args.gn", "config/chromium_revision.txt", "native/adblock_ffi/Cargo.toml",
+    "README.md", "config/args.gn", "config/vanilla_args.gn", "config/chromium_revision.txt",
+    "config/depot_tools_revision.txt", "native/adblock_ffi/Cargo.toml",
     "native/adblock_ffi/src/lib.rs", "scripts/bootstrap_chromium.sh",
-    "scripts/apply_overlays.sh", "scripts/build_android.sh", "scripts/integrate_chromium.py",
+    "scripts/apply_overlays.sh", "scripts/build_android.sh", "scripts/build_vanilla_android.sh",
+    "scripts/integrate_chromium.py",
     "scripts/test_policy_core.sh", "docs/ARCHITECTURE.md", "docs/IMPLEMENTATION_STATUS.md",
     "overlays/chromium/chrome/android/java/src/org/chromium/chrome/browser/nautrix/BUILD.gn",
     "overlays/chromium/chrome/browser/nautrix/BUILD.gn",
@@ -43,6 +45,31 @@ def verify_repo() -> None:
     revision = (ROOT / "config/chromium_revision.txt").read_text().strip()
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         fail("config/chromium_revision.txt must contain one exact 40-char Chromium commit SHA")
+    depot_tools_revision = (ROOT / "config/depot_tools_revision.txt").read_text().strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", depot_tools_revision):
+        fail("config/depot_tools_revision.txt must contain one exact 40-char commit SHA")
+
+    vanilla_args = (ROOT / "config/vanilla_args.gn").read_text()
+    for marker in ['target_os = "android"', 'target_cpu = "arm64"', 'use_remoteexec = false']:
+        if marker not in vanilla_args:
+            fail(f"vanilla Chromium args missing {marker!r}")
+    if "nautrix_" in vanilla_args or "enable_desktop_android_extensions" in vanilla_args:
+        fail("vanilla Chromium args must not enable Nautrix or experimental extension features")
+
+    bootstrap = (ROOT / "scripts/bootstrap_chromium.sh").read_text()
+    for marker in [
+        "config/depot_tools_revision.txt",
+        'target_os = ["android"]',
+        "checkout_android",
+        "toolchains/llvm/prebuilt",
+        "gclient runhooks",
+    ]:
+        if marker not in bootstrap:
+            fail(f"Chromium bootstrap missing {marker!r}")
+    if "android.toolchain.cmake" in bootstrap:
+        fail("Chromium bootstrap must not use the optional NDK CMake file as its sync contract")
+    if "fetch --nohooks --no-history android" in bootstrap:
+        fail("Chromium bootstrap must select the pinned revision before the first dependency sync")
     manifest_integrator = (ROOT / "scripts/integrate_chromium.py").read_text()
     for cls in [
         "NautrixPlayerService",
@@ -88,21 +115,32 @@ def verify_repo() -> None:
         if symbol not in rust: fail(f"Rust FFI symbol missing: {symbol}")
 
 
-def verify_chromium(src: Path) -> None:
+def verify_chromium(src: Path, expect_overlays: bool) -> None:
     if not (src / "DEPS").is_file(): fail(f"not a Chromium src checkout: {src}")
-    expected = {
-        "chrome/android/java/src/org/chromium/chrome/browser/nautrix/BUILD.gn": "nautrix_integration_java",
-        "chrome/browser/nautrix/BUILD.gn": "adblock_integration",
-        "chrome/browser/chrome_content_browser_client.cc": "NautrixAdBlockThrottle",
-        "chrome/android/java/AndroidManifest.xml": "NautrixPlayerService",
-        "chrome/browser/privacy/BUILD.gn": "NautrixSecureDnsApi.java",
-        "components/webapps/browser/android/add_to_homescreen_data_fetcher.cc":
-            "Nautrix: an explicit Install request",
-    }
-    for rel, marker in expected.items():
-        path = src / rel
-        if not path.is_file() or marker not in path.read_text(errors="replace"):
-            fail(f"Chromium integration missing marker {marker!r} in {rel}")
+    deps = (src / "DEPS").read_text(errors="replace")
+    depot_match = re.search(
+        r"'src/third_party/depot_tools'\s*:\s*.*?tools/depot_tools\.git'\s*"
+        r"\+\s*'@'\s*\+\s*'([0-9a-f]{40})'",
+        deps,
+        re.S,
+    )
+    expected_depot = (ROOT / "config/depot_tools_revision.txt").read_text().strip()
+    if not depot_match or depot_match.group(1) != expected_depot:
+        fail("pinned depot_tools revision does not match the Chromium DEPS entry")
+    if expect_overlays:
+        expected = {
+            "chrome/android/java/src/org/chromium/chrome/browser/nautrix/BUILD.gn": "nautrix_integration_java",
+            "chrome/browser/nautrix/BUILD.gn": "adblock_integration",
+            "chrome/browser/chrome_content_browser_client.cc": "NautrixAdBlockThrottle",
+            "chrome/android/java/AndroidManifest.xml": "NautrixPlayerService",
+            "chrome/browser/privacy/BUILD.gn": "NautrixSecureDnsApi.java",
+            "components/webapps/browser/android/add_to_homescreen_data_fetcher.cc":
+                "Nautrix: an explicit Install request",
+        }
+        for rel, marker in expected.items():
+            path = src / rel
+            if not path.is_file() or marker not in path.read_text(errors="replace"):
+                fail(f"Chromium integration missing marker {marker!r} in {rel}")
 
     pinned = (ROOT / "config/chromium_revision.txt").read_text().strip()
     head_file = src / ".git"
@@ -111,6 +149,17 @@ def verify_chromium(src: Path) -> None:
     actual = subprocess.check_output(["git", "-C", str(src), "rev-parse", "HEAD"], text=True).strip()
     if actual != pinned:
         fail(f"Chromium checkout drifted: expected {pinned}, got {actual}")
+
+    gclient_args = src / "build/config/gclient_args.gni"
+    if not gclient_args.is_file() or not re.search(
+        r"^checkout_android\s*=\s*true$", gclient_args.read_text(), re.M
+    ):
+        fail("Chromium checkout was not synced with checkout_android=true")
+    ndk_prebuilts = src / "third_party/android_toolchain/ndk/toolchains/llvm/prebuilt"
+    if not ndk_prebuilts.is_dir() or not any(
+        (candidate / "sysroot/usr/include").is_dir() for candidate in ndk_prebuilts.iterdir()
+    ):
+        fail("Chromium Android NDK LLVM sysroot is missing")
 
     # Extension capability contract. These are intentionally upstream-owned; if Chromium's
     # experimental Android port regresses, CI must fail rather than silently shipping less.
@@ -174,9 +223,16 @@ def verify_chromium(src: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--chromium-src", type=Path)
+    parser.add_argument(
+        "--expect-overlays",
+        action="store_true",
+        help="also require Nautrix overlays to have been applied to the Chromium checkout",
+    )
     args = parser.parse_args()
+    if args.expect_overlays and not args.chromium_src:
+        parser.error("--expect-overlays requires --chromium-src")
     verify_repo()
-    if args.chromium_src: verify_chromium(args.chromium_src.resolve())
+    if args.chromium_src: verify_chromium(args.chromium_src.resolve(), args.expect_overlays)
     print("Nautrix repository verification: PASS")
 
 if __name__ == "__main__": main()

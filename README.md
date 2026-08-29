@@ -41,9 +41,16 @@ This repository is intentionally **not a copy of the whole Chromium source tree*
 
 ## Current state
 
-**Active integration / audit phase.** Nautrix now contains the Chromium integration script, Android runtime, 1h/5d tab lifecycle, DNS benchmark engine, Rust adblock FFI + browser throttle, Media3 player/background session/PiP, Smart Cache, permanent adaptive-media downloads, and optional libtorrent v2.1.1 torrent engine with fast-resume and native manager UI.
+**Chromium bootstrap phase.** The supported WebView fallback remains on `main`; this branch is an
+isolated migration workspace. Nautrix overlay prototypes exist for tabs, DNS, adblock, media and
+torrents, but none is described as working until it compiles and passes runtime tests inside the
+pinned Chromium tree.
 
-Fast policy and repository checks run without a Chromium checkout. A **full Chromium ARM64 build is the release gate** and compilation is performed only by GitHub Actions. The workflow uses the exact Chromium commit pinned in `config/chromium_revision.txt`, builds Rust adblock + libtorrent with Chromium's synced NDK, compiles `chrome_public_apk`, and uploads the APK plus SHA-256 as an Actions artifact. Cosmetic/scriptlet ad filtering and privacy hardening remain under critic review.
+The immediate release gate is deliberately smaller: GitHub Actions syncs the exact Chromium and
+matching `depot_tools` revisions, verifies the Android LLVM sysroot and upstream capabilities, then
+builds an unmodified ARM64 `chrome_public_apk`. Only after that artifact succeeds will overlays be
+introduced in narrow, independently testable groups. See `docs/ROADMAP.md` and
+`docs/IMPLEMENTATION_STATUS.md` for checked evidence and pending gates.
 
 ## Quick policy test
 
@@ -57,8 +64,13 @@ Requires a Linux x86-64 machine with enough disk/RAM for Chromium development.
 
 ```bash
 ./scripts/bootstrap_chromium.sh /path/to/work
-./scripts/apply_overlays.sh /path/to/work/chromium/src
+./scripts/build_vanilla_android.sh /path/to/work/chromium/src
+```
+
+After the vanilla gate succeeds, the experimental overlay build can be attempted separately:
+
+```bash
 ./scripts/build_android.sh /path/to/work/chromium/src
 ```
 
-The default build target is `chrome_public_apk` and the default Nautrix target CPU is ARM64.
+Both paths target `chrome_public_apk`; ARM64 is the current baseline.

@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
-      - 'audit/**'
+      - 'integration/**'
     paths:
       - '.github/workflows/chromium-android.yml'
       - 'config/**'
@@ -42,17 +41,19 @@ jobs:
           bash -n scripts/bootstrap_chromium.sh
           bash -n scripts/apply_overlays.sh
           bash -n scripts/build_android.sh
+          bash -n scripts/build_vanilla_android.sh
           bash -n scripts/build_adblock_android.sh
           bash -n scripts/build_libtorrent_android.sh
 
   full-build:
     needs: preflight
-    # Compilation is performed only by GitHub Actions. The hosted runner is
-    # aggressively cleaned because Chromium supplies its own Android SDK/NDK.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/integration/'))
+    # First prove a completely upstream Chromium APK. Nautrix overlays and
+    # optional Rust/libtorrent modules are deliberately excluded from this job.
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      NAUTRIX_ENABLE_TORRENT: '1'
+      NINJA_SUMMARIZE_BUILD: '1'
     steps:
       - uses: actions/checkout@v6
       - name: Configure work directory
@@ -70,31 +71,30 @@ jobs:
           sudo docker system prune -af || true
           sudo apt-get clean
           df -h /
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-      - name: Install Rust Android tooling
-        run: cargo install cargo-ndk --locked
       - name: Bootstrap pinned Chromium
         run: ./scripts/bootstrap_chromium.sh "$NAUTRIX_WORK"
       - name: Verify pinned revision and upstream capabilities
         run: python3 scripts/verify_repo.py --chromium-src "$NAUTRIX_WORK/chromium/src"
-      - name: Build Nautrix release APK
-        run: |
-          export ANDROID_NDK_ROOT="$NAUTRIX_WORK/chromium/src/third_party/android_toolchain/ndk"
-          ./scripts/build_android.sh "$NAUTRIX_WORK/chromium/src" Nautrix
+      - name: Build upstream Chromium baseline APK
+        run: ./scripts/build_vanilla_android.sh "$NAUTRIX_WORK/chromium/src" NautrixVanilla
       - name: Collect APK
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          APK="$(find "$NAUTRIX_WORK/chromium/src/out/Nautrix/apks" -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          APK="$(find "$NAUTRIX_WORK/chromium/src/out/NautrixVanilla/apks" -maxdepth 1 -type f -name '*.apk' -print -quit)"
           test -n "$APK"
-          cp "$APK" artifacts/Nautrix-arm64-release.apk
-          sha256sum artifacts/Nautrix-arm64-release.apk > artifacts/Nautrix-arm64-release.apk.sha256
+          cp "$APK" artifacts/Nautrix-Chromium-vanilla-arm64.apk
+          sha256sum artifacts/Nautrix-Chromium-vanilla-arm64.apk > artifacts/Nautrix-Chromium-vanilla-arm64.apk.sha256
           printf '%s\n' "$(cat config/chromium_revision.txt)" > artifacts/chromium-revision.txt
+          printf '%s\n' "$(cat config/depot_tools_revision.txt)" > artifacts/depot-tools-revision.txt
+      - name: Build diagnostics
+        if: always()
+        run: |
+          df -h /
+          du -sh "$NAUTRIX_WORK/chromium/src" 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
-          name: Nautrix-arm64-release-${{ github.sha }}
+          name: Nautrix-Chromium-vanilla-arm64-${{ github.sha }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14
