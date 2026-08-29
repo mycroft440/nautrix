@@ -20,7 +20,7 @@ significa funcionalidade pronta para produção.
 - [x] Remover DNS UDP/53 e o proxy CONNECT local; usar o DNS seguro configurado no Android.
 - [x] Limitar cookies de mídia/torrent à URL de destino e reduzir o referer à origem.
 - [x] Evitar iniciar o serviço torrent quando não existem tarefas persistidas.
-- [ ] Validar as correções no GitHub Actions.
+- [x] Validar as correções no GitHub Actions ([execução 24](https://github.com/mycroft440/nautrix/actions/runs/33258020942)).
 - [ ] Instalar o APK e executar smoke test em aparelho.
 
 ## Fase 2 — primeiro APK Chromium
