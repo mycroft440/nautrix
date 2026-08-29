@@ -2,7 +2,6 @@
 """Fast checks that catch missing browser/build integration before the expensive Android build."""
 
 from pathlib import Path
-import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -29,7 +28,8 @@ SOURCE_CLASSES = [
     "VideoCache",
     "VideoHistory",
     "AutoDnsManager",
-    "LocalHttpProxy",
+    "NavigationSecurityPolicy",
+    "NotificationPermissionHelper",
     "InstalledSiteActivity",
     "DownloadRegistry",
     "DownloadManagerActivity",
@@ -68,6 +68,8 @@ def main() -> int:
     require("android.permission.INTERNET" in manifest, "INTERNET permission missing")
     require('android:usesCleartextTraffic="false"' in manifest, "cleartext must stay disabled")
     require('android:exported="true"' in manifest, "launcher activity must be exported")
+    require("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in manifest,
+            "first-run battery exemption permission must stay removed")
 
     activity = read_source("BrowserActivity")
     for capability in [
@@ -83,6 +85,8 @@ def main() -> int:
         "installCurrentSite(",
         "showCachedVideos(",
         "showAutoDnsPanel(",
+        "NavigationSecurityPolicy.mayLaunchExternal",
+        "PerformanceSetupActivity::class.java",
         "showMediaDownloadPicker(",
         "openDownloadManager(",
         "confirmMagnet(",
@@ -97,7 +101,8 @@ def main() -> int:
     require('adblock = { version = "=0.13.3"' in cargo, "adblock-rust version must be pinned")
 
     player = read_source("VideoPlayerActivity")
-    for capability in ["ExoPlayer", "STATE_BUFFERING", "PlaybackStatusPolicy", "Cookie"]:
+    for capability in ["ExoPlayer", "STATE_BUFFERING", "PlaybackStatusPolicy",
+                       "addNetworkInterceptor", "sameHttpsOrigin"]:
         require(capability in player, f"video player capability missing: {capability}")
 
     status_policy = read_source("PlaybackStatusPolicy")
@@ -108,17 +113,18 @@ def main() -> int:
         require(capability in video_cache, f"video cache capability missing: {capability}")
 
     auto_dns = read_source("AutoDnsManager")
-    for capability in ["CANDIDATES", "benchmarkAsync", "resolveAll", "ProxyController", "20 servidores"]:
-        require(capability in auto_dns, f"automatic DNS capability missing: {capability}")
-    candidate_count = len(re.findall(r"(?:new\s+)?Candidate\(", auto_dns))
-    require(candidate_count >= 20, "automatic DNS needs at least 20 candidates")
+    for capability in ["resolveAll", "InetAddress.getAllByName", "clearProxyOverride", "DNS privado"]:
+        require(capability in auto_dns, f"safe Android DNS capability missing: {capability}")
+    require("DatagramSocket" not in auto_dns, "unencrypted UDP DNS must stay disabled")
+    require("addProxyRule" not in auto_dns, "the WebView must not use the legacy DNS proxy")
 
     download_manager = read_source("DownloadManagerActivity")
     for capability in ["DownloadRegistry", "TorrentService", "Adicionar magnet", "Abrir .torrent"]:
         require(capability in download_manager, f"download manager capability missing: {capability}")
 
     torrent_service = read_source("TorrentService")
-    for capability in ["SessionManager", "TorrentInfo", "addMagnet", "handle.pause()"]:
+    for capability in ["SessionManager", "TorrentInfo", "addMagnet", "handle.pause()",
+                       "setInstanceFollowRedirects(false)", "sameHttpsOrigin"]:
         require(capability in torrent_service, f"torrent capability missing: {capability}")
 
     shortcut = read_source("InstalledSiteActivity")
@@ -126,6 +132,7 @@ def main() -> int:
 
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
     require("org.jetbrains.kotlin.android" in gradle, "Kotlin Android plugin missing")
+    require("targetSdk 36" in gradle, "targetSdk 36 required")
     for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash",
                    "media3-datasource-okhttp", "media3-ui", "androidx.webkit", "jlibtorrent"]:
         require(module in gradle, f"Media3 module missing: {module}")

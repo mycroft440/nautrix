@@ -273,7 +273,10 @@ class ModernBrowserActivity : BrowserActivity() {
 
         // Normal launches start on the offline home immediately. HTTPS deep links still open
         // directly into the requested site.
-        if (intent?.data?.scheme.equals("https", ignoreCase = true)) {
+        if (
+            intent?.data?.scheme.equals("https", ignoreCase = true) ||
+            intent?.data?.scheme.equals("http", ignoreCase = true)
+        ) {
             hideOfflineHome()
         } else {
             expectHomeOnNextWebView = true

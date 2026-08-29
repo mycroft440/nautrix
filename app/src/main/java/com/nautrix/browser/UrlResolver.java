@@ -18,9 +18,13 @@ public final class UrlResolver {
         URI explicit = parse(value);
         if (explicit != null && explicit.getScheme() != null) {
             String scheme = explicit.getScheme().toLowerCase(Locale.ROOT);
-            if (("https".equals(scheme) || "http".equals(scheme))
-                    && explicit.getHost() != null) {
-                return explicit.toASCIIString();
+            if ("https".equals(scheme)) {
+                String safe = NavigationSecurityPolicy.safeHttpsUrl(value);
+                if (safe != null) return safe;
+            }
+            if ("http".equals(scheme)) {
+                String upgraded = NavigationSecurityPolicy.upgradeHttpToHttps(value);
+                if (upgraded != null) return upgraded;
             }
             if ("about".equals(scheme) && "about:blank".equalsIgnoreCase(value)) {
                 return "about:blank";

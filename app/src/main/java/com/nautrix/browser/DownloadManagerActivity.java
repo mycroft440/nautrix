@@ -242,6 +242,7 @@ public final class DownloadManagerActivity extends Activity {
                 .setView(input)
                 .setPositiveButton("Adicionar", (dialog, which) -> {
                     try {
+                        NotificationPermissionHelper.requestForTransfer(this);
                         TorrentService.addMagnet(this, input.getText().toString());
                         Toast.makeText(this, "Magnet adicionado", Toast.LENGTH_SHORT).show();
                     } catch (Exception error) {
@@ -277,6 +278,7 @@ public final class DownloadManagerActivity extends Activity {
                     data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } catch (Exception ignored) {
         }
+        NotificationPermissionHelper.requestForTransfer(this);
         TorrentService.addTorrentFile(this, uri);
         Toast.makeText(this, "Arquivo .torrent adicionado", Toast.LENGTH_SHORT).show();
     }

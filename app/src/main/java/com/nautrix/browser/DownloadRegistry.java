@@ -4,7 +4,6 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
-import android.webkit.CookieManager;
 import android.webkit.URLUtil;
 
 import org.json.JSONArray;
@@ -43,14 +42,8 @@ final class DownloadRegistry {
         if (userAgent != null && !userAgent.trim().isEmpty()) {
             request.addRequestHeader("User-Agent", userAgent);
         }
-        if (referer != null && referer.startsWith("https://")) {
-            request.addRequestHeader("Referer", referer);
-        }
-        String cookie = CookieManager.getInstance().getCookie(url);
-        if ((cookie == null || cookie.isEmpty()) && referer != null) {
-            cookie = CookieManager.getInstance().getCookie(referer);
-        }
-        if (cookie != null && !cookie.isEmpty()) request.addRequestHeader("Cookie", cookie);
+        String safeReferer = NavigationSecurityPolicy.originOnly(referer);
+        if (safeReferer != null) request.addRequestHeader("Referer", safeReferer);
 
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         if (manager == null) throw new IllegalStateException("DownloadManager unavailable");

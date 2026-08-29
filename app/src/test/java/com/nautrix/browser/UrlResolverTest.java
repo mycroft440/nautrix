@@ -11,6 +11,11 @@ public final class UrlResolverTest {
     }
 
     @Test
+    public void upgradesExplicitHttpAddress() {
+        assertEquals("https://example.com/path", UrlResolver.resolve("http://example.com/path"));
+    }
+
+    @Test
     public void addsHttpsToDomain() {
         assertEquals("https://example.com/path", UrlResolver.resolve("example.com/path"));
     }

@@ -14,21 +14,14 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 
 /**
- * One-time, opt-in setup for Android background execution restrictions.
+ * User-initiated access to Android background execution settings.
  *
- * The browser continues to work when the user declines. Granting these settings mainly helps
- * long-running downloads/torrents, cache/network work and other tasks that must survive while
- * Nautrix is not the foreground app; it does not bypass Android security or connectivity rules.
+ * This screen is never shown during first launch. It opens only from the browser menu and never
+ * requests a direct battery-optimization exemption, which keeps the decision in Android's UI.
  */
 class PerformanceSetupActivity : Activity() {
-    companion object {
-        private const val PREFS = "nautrix"
-        private const val KEY_PROMPTED = "performance_setup_prompted_v1"
-    }
-
     private var waitingForBatterySettings = false
     private var waitingForBackgroundDataSettings = false
-    private var browserLaunched = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,14 +34,6 @@ class PerformanceSetupActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ),
         )
-
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_PROMPTED, false) || (batteryIsUnrestricted() && backgroundDataIsAllowed())) {
-            prefs.edit().putBoolean(KEY_PROMPTED, true).apply()
-            launchBrowser()
-            return
-        }
-
         window.decorView.post { showPerformanceConsent() }
     }
 
@@ -57,32 +42,29 @@ class PerformanceSetupActivity : Activity() {
         when {
             waitingForBatterySettings -> {
                 waitingForBatterySettings = false
-                if (!backgroundDataIsAllowed()) {
-                    openBackgroundDataSettings()
-                } else {
-                    finishSetupAndLaunch()
-                }
+                if (!backgroundDataIsAllowed()) openBackgroundDataSettings() else finish()
             }
             waitingForBackgroundDataSettings -> {
                 waitingForBackgroundDataSettings = false
-                finishSetupAndLaunch()
+                finish()
             }
         }
     }
 
     private fun showPerformanceConsent() {
-        if (isFinishing || isDestroyed || browserLaunched) return
+        if (isFinishing || isDestroyed) return
+        val batteryState = if (batteryIsUnrestricted()) "sem restrição" else "otimizada pelo Android"
+        val dataState = if (backgroundDataIsAllowed()) "permitidos" else "restritos"
         AlertDialog.Builder(this)
-            .setTitle("Nautrix em segundo plano")
+            .setTitle("Execução em segundo plano")
             .setMessage(
-                "Para manter downloads, torrents, cache e tarefas de rede mais estáveis quando " +
-                    "o Nautrix não estiver na tela, você pode permitir bateria sem restrição e " +
-                    "dados em segundo plano.\n\nIsso pode aumentar o consumo de bateria e de " +
-                    "dados móveis. O navegador continua funcionando mesmo se você não permitir.",
+                "Bateria: $batteryState\nDados em segundo plano: $dataState\n\n" +
+                    "Alterar essas opções pode ajudar torrents e transferências longas, mas aumenta " +
+                    "o consumo. O Nautrix funciona sem essas permissões.",
             )
-            .setPositiveButton("Configurar") { _, _ -> startPerformanceSetup() }
-            .setNegativeButton("Agora não") { _, _ -> finishSetupAndLaunch() }
-            .setOnCancelListener { finishSetupAndLaunch() }
+            .setPositiveButton("Abrir configurações") { _, _ -> startPerformanceSetup() }
+            .setNegativeButton("Voltar") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
             .show()
     }
 
@@ -92,20 +74,16 @@ class PerformanceSetupActivity : Activity() {
         } else if (!backgroundDataIsAllowed()) {
             openBackgroundDataSettings()
         } else {
-            finishSetupAndLaunch()
+            finish()
         }
     }
 
     private fun openBatterySettings() {
         waitingForBatterySettings = true
-        val packageUri = Uri.parse("package:$packageName")
-        val directRequest = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
-        if (launchSettingsIntent(directRequest)) return
-
-        val optimizationList = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-        if (launchSettingsIntent(optimizationList)) return
-
-        launchSettingsIntent(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))
+        if (launchSettingsIntent(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))) return
+        if (!launchSettingsIntent(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
+        )) finish()
     }
 
     private fun openBackgroundDataSettings() {
@@ -117,7 +95,7 @@ class PerformanceSetupActivity : Activity() {
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri)
         }
         if (launchSettingsIntent(dataIntent)) return
-        launchSettingsIntent(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))
+        if (!launchSettingsIntent(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))) finish()
     }
 
     private fun launchSettingsIntent(intent: Intent): Boolean = try {
@@ -141,23 +119,5 @@ class PerformanceSetupActivity : Activity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return true
         val manager = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
         return manager.restrictBackgroundStatus != ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
-    }
-
-    private fun finishSetupAndLaunch() {
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_PROMPTED, true)
-            .apply()
-        launchBrowser()
-    }
-
-    private fun launchBrowser() {
-        if (browserLaunched || isFinishing) return
-        browserLaunched = true
-        startActivity(
-            Intent(this, ModernBrowserActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        )
-        finish()
     }
 }

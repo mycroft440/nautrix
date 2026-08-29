@@ -137,15 +137,16 @@ open class BrowserActivity : Activity() {
         }
 
         autoDnsManager.installWebViewProxy { openInitialTabs() }
-        autoDnsManager.benchmarkAsync(false, null)
     }
 
     private fun openInitialTabs() {
         if (initialTabsOpened || isFinishing || isDestroyed) return
         initialTabsOpened = true
-        val requested = intent?.data
-        if (requested != null && requested.scheme.equals("https", ignoreCase = true)) {
-            createTab(requested.toString(), true)
+        val requested = intent?.data?.toString()?.let {
+            NavigationSecurityPolicy.upgradeHttpToHttps(it)
+        }
+        if (requested != null) {
+            createTab(requested, true)
         } else if (!restoreSession()) {
             createTab(HOME_URL, true)
         }
@@ -376,7 +377,8 @@ open class BrowserActivity : Activity() {
         menu.menu.add("Abrir vídeo no player")
         menu.menu.add("Vídeos em cache")
         menu.menu.add("Instalar página como app")
-        menu.menu.add("DNS automático")
+        menu.menu.add("DNS seguro do Android")
+        menu.menu.add("Execução em segundo plano")
         menu.menu.add("Limpar cache de vídeos")
         menu.menu.add(if (currentTab().desktop) "Usar versão móvel" else "Versão para computador")
         menu.menu.add("Abrir no aplicativo externo")
@@ -392,7 +394,10 @@ open class BrowserActivity : Activity() {
                 "Abrir vídeo no player" -> openVideoPlayer()
                 "Vídeos em cache" -> showCachedVideos()
                 "Instalar página como app" -> installCurrentSite()
-                "DNS automático" -> showAutoDnsPanel()
+                "DNS seguro do Android" -> showAutoDnsPanel()
+                "Execução em segundo plano" -> {
+                    startActivity(Intent(this, PerformanceSetupActivity::class.java))
+                }
                 "Limpar cache de vídeos" -> clearVideoCache()
                 "Abrir no aplicativo externo" -> openExternally()
                 "Limpar dados de navegação" -> confirmClearData()
@@ -596,6 +601,7 @@ open class BrowserActivity : Activity() {
             )
             .setPositiveButton("Adicionar") { _, _ ->
                 val cookie = CookieManager.getInstance().getCookie(url)
+                NotificationPermissionHelper.requestForTransfer(this)
                 TorrentService.addTorrentUrl(this, url, userAgent, cookie, referer)
                 openDownloadManager()
             }
@@ -609,6 +615,7 @@ open class BrowserActivity : Activity() {
             .setMessage("O torrent será baixado pelo gerenciador interno. Use somente conteúdo autorizado.")
             .setPositiveButton("Adicionar") { _, _ ->
                 try {
+                    NotificationPermissionHelper.requestForTransfer(this)
                     TorrentService.addMagnet(this, magnet)
                     openDownloadManager()
                 } catch (_: Exception) {
@@ -659,13 +666,11 @@ open class BrowserActivity : Activity() {
             Toast.makeText(this, "Este vídeo não oferece uma fonte HTTPS compatível", Toast.LENGTH_LONG).show()
             return
         }
-        var cookie = CookieManager.getInstance().getCookie(videoUrl)
-        if (cookie.isNullOrEmpty() && referer != null) {
-            cookie = CookieManager.getInstance().getCookie(referer)
-        }
+        val cookie = CookieManager.getInstance().getCookie(videoUrl)
+        val safeReferer = NavigationSecurityPolicy.originOnly(referer)
         val title = if (currentIndex in tabs.indices) currentTab().title else "Vídeo"
-        VideoHistory.remember(this, videoUrl, referer, userAgent, title)
-        startActivity(VideoPlayerActivity.createIntent(this, videoUrl, referer, userAgent, cookie))
+        VideoHistory.remember(this, videoUrl, safeReferer, userAgent, title)
+        startActivity(VideoPlayerActivity.createIntent(this, videoUrl, safeReferer, userAgent, cookie))
     }
 
     private fun showCachedVideos() {
@@ -749,19 +754,13 @@ open class BrowserActivity : Activity() {
 
     private fun showAutoDnsPanel() {
         AlertDialog.Builder(this)
-            .setTitle("DNS automático")
+            .setTitle("DNS seguro do Android")
             .setMessage(
                 autoDnsManager.status() + "\n\n" +
-                    "O Nautrix testa 20 servidores com três consultas e combina " +
-                    "latência, variação e falhas. O DNS do sistema é usado como fallback.",
+                    "A versão WebView agora usa o resolvedor do Android e respeita o DNS privado " +
+                    "configurado no aparelho. A seleção automática com DoH será integrada ao Chromium.",
             )
-            .setPositiveButton("Otimizar agora") { _, _ ->
-                Toast.makeText(this, "Testando servidores DNS…", Toast.LENGTH_SHORT).show()
-                autoDnsManager.benchmarkAsync(true) {
-                    Toast.makeText(this, autoDnsManager.status(), Toast.LENGTH_LONG).show()
-                }
-            }
-            .setNegativeButton("Fechar", null)
+            .setPositiveButton("Fechar", null)
             .show()
     }
 
@@ -1014,13 +1013,64 @@ open class BrowserActivity : Activity() {
 
     private fun dp(value: Int): Int = Math.round(value * resources.displayMetrics.density)
 
+    private fun openExternalIntent(view: WebView, rawIntent: Intent, fallback: String?) {
+        val scheme = rawIntent.data?.scheme?.lowercase(Locale.ROOT)
+        if (
+            scheme.isNullOrBlank() || scheme == "file" || scheme == "content" ||
+            scheme == "javascript" || scheme == "data"
+        ) {
+            fallback?.let(view::loadUrl)
+            return
+        }
+
+        val sanitized = Intent(rawIntent).apply {
+            action = Intent.ACTION_VIEW
+            component = null
+            selector = null
+            clipData = null
+            flags = 0
+            categories?.toList()?.forEach { removeCategory(it) }
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            replaceExtras(Bundle())
+        }
+        val resolved = packageManager.resolveActivity(sanitized, PackageManager.MATCH_DEFAULT_ONLY)
+        val activityInfo = resolved?.activityInfo
+        if (activityInfo == null || !activityInfo.exported) {
+            if (fallback != null) {
+                view.loadUrl(fallback)
+            } else {
+                Toast.makeText(this, "Nenhum aplicativo disponível", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val explicit = Intent(sanitized).setClassName(activityInfo.packageName, activityInfo.name)
+        val appLabel = try {
+            activityInfo.loadLabel(packageManager).toString()
+        } catch (_: Exception) {
+            activityInfo.packageName
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Abrir aplicativo externo?")
+            .setMessage("Este site quer abrir $appLabel.")
+            .setPositiveButton("Abrir") { _, _ ->
+                try {
+                    startActivity(explicit)
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Não foi possível abrir o aplicativo", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val uri = intent?.data
-        if (uri != null && uri.scheme.equals("https", ignoreCase = true)) {
-            createTab(uri.toString(), true)
+        val safeUrl = intent?.data?.toString()?.let {
+            NavigationSecurityPolicy.upgradeHttpToHttps(it)
         }
+        if (safeUrl != null) createTab(safeUrl, true)
     }
 
     override fun onPause() {
@@ -1054,19 +1104,21 @@ open class BrowserActivity : Activity() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
             val scheme = uri.scheme
-            if (scheme.equals("https", ignoreCase = true) || scheme.equals("http", ignoreCase = true)) {
-                return false
+            if (scheme.equals("https", ignoreCase = true)) return false
+            if (scheme.equals("http", ignoreCase = true)) {
+                NavigationSecurityPolicy.upgradeHttpToHttps(uri.toString())?.let(view::loadUrl)
+                return true
             }
             if (scheme.equals("intent", ignoreCase = true)) {
+                if (!NavigationSecurityPolicy.mayLaunchExternal(request.isForMainFrame, request.hasGesture())) {
+                    return true
+                }
                 try {
                     val parsed = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
-                    if (parsed.resolveActivity(packageManager) != null) {
-                        startActivity(parsed)
-                    } else {
-                        parsed.getStringExtra("browser_fallback_url")
-                            ?.takeIf { it.startsWith("https://") }
-                            ?.let(view::loadUrl)
-                    }
+                    val fallback = NavigationSecurityPolicy.safeHttpsUrl(
+                        parsed.getStringExtra("browser_fallback_url"),
+                    )
+                    openExternalIntent(view, parsed, fallback)
                 } catch (_: Exception) {
                 }
                 return true
@@ -1080,11 +1132,10 @@ open class BrowserActivity : Activity() {
                 scheme.equals("tel", ignoreCase = true) ||
                 scheme.equals("market", ignoreCase = true)
             ) {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, uri))
-                } catch (_: Exception) {
-                    Toast.makeText(this@BrowserActivity, "Nenhum aplicativo disponível", Toast.LENGTH_SHORT).show()
+                if (!NavigationSecurityPolicy.mayLaunchExternal(request.isForMainFrame, request.hasGesture())) {
+                    return true
                 }
+                openExternalIntent(view, Intent(Intent.ACTION_VIEW, uri), null)
                 return true
             }
             return true

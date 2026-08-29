@@ -15,11 +15,11 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 - bloqueio nativo com o motor [`brave/adblock-rust`](https://github.com/brave/adblock-rust), EasyList, EasyPrivacy e filtros cosméticos;
 - proteção ativável/desativável por site e contador de bloqueios por aba;
 - player dedicado com Media3/ExoPlayer para MP4, WebM, HLS e DASH;
-- detecção de vídeos na página, preservando cookies, referência e user-agent da sessão;
+- detecção de vídeos na página, com cookies limitados à origem de destino e referência reduzida à origem;
 - botão **⇩** no canto superior para baixar fontes MP4/WebM/MOV expostas pela página ou abrir HLS/DASH no player/cache;
 - feedback de conexão, buffer, falta de internet, erro e aviso **“Servidor do site lento!”**;
 - cache persistente durante a reprodução, com retenção mínima de 5 dias e lista **Vídeos em cache** para rever offline os trechos já carregados;
-- DNS automático: mede 20 resolvedores com três amostras, pontua latência, variação e falhas e aplica o vencedor ao WebView e ao player;
+- DNS seguro do Android, respeitando o DNS privado configurado no aparelho;
 - instalação de páginas HTTPS na tela inicial, abertas como app sem as barras do navegador;
 - tema escuro.
 
@@ -46,15 +46,20 @@ armazenados podem ser reproduzidos; o Nautrix não afirma ter baixado as partes 
 recebidas. O app não remove conteúdo com menos de 5 dias, salvo se o usuário limpar os dados ou o
 cache pelo menu.
 
-Em **Menu → DNS automático**, é possível ver o resolvedor escolhido e executar um novo teste. O
-proxy é local ao processo do Nautrix e mantém o TLS entre o WebView e o site; se DNS externo estiver
-bloqueado pela rede, o navegador volta automaticamente ao resolvedor do Android.
+Em **Menu → DNS seguro do Android**, é possível conferir a política ativa. O protótipo WebView não
+faz mais consultas diretas por UDP/53 nem instala um proxy DNS local. A seleção automática com DoH
+será implementada na distribuição Chromium.
+
+A configuração de bateria e dados em segundo plano não aparece mais no primeiro início. Ela é
+opcional e pode ser aberta em **Menu → Execução em segundo plano** quando o usuário realmente
+precisar manter uma transferência longa.
 
 Em **Menu → Instalar página como app**, o Android pede confirmação para adicionar um ícone à tela
 inicial. O atalho abre a página em uma atividade própria, sem a barra de endereço e a navegação do
 Nautrix.
 
 Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado exato de cada item.
+O plano de migração está em [ROADMAP.md](docs/ROADMAP.md).
 
 ## Build pelo GitHub Actions
 

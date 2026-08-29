@@ -21,6 +21,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.webkit.CookieManager;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
@@ -34,12 +35,11 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
-import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
+import okhttp3.Request;
 
 /** Dedicated Media3 player with actionable buffering and network feedback. */
 public final class VideoPlayerActivity extends Activity {
@@ -98,7 +98,7 @@ public final class VideoPlayerActivity extends Activity {
             finish();
             return;
         }
-        referer = cleanHeader(intent.getStringExtra(EXTRA_REFERER));
+        referer = NavigationSecurityPolicy.originOnly(intent.getStringExtra(EXTRA_REFERER));
         userAgent = cleanHeader(intent.getStringExtra(EXTRA_USER_AGENT));
         cookie = cleanHeader(intent.getStringExtra(EXTRA_COOKIE));
         if (savedInstanceState != null) {
@@ -204,14 +204,32 @@ public final class VideoPlayerActivity extends Activity {
                 .readTimeout(20, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .followSslRedirects(true)
+                .addNetworkInterceptor(chain -> {
+                    Request original = chain.request();
+                    Request.Builder scoped = original.newBuilder()
+                            .removeHeader("Cookie")
+                            .removeHeader("Referer");
+                    String requestUrl = original.url().toString();
+                    String requestCookie = null;
+                    try {
+                        requestCookie = cleanHeader(
+                                CookieManager.getInstance().getCookie(requestUrl));
+                    } catch (Exception ignored) {
+                    }
+                    if ((requestCookie == null || requestCookie.isEmpty())
+                            && NavigationSecurityPolicy.sameHttpsOrigin(
+                                    videoUri.toString(), requestUrl)) {
+                        requestCookie = cookie;
+                    }
+                    if (requestCookie != null && !requestCookie.isEmpty()) {
+                        scoped.header("Cookie", requestCookie);
+                    }
+                    if (referer != null) scoped.header("Referer", referer);
+                    return chain.proceed(scoped.build());
+                })
                 .build();
         OkHttpDataSource.Factory httpFactory = new OkHttpDataSource.Factory(httpClient);
         if (userAgent != null && !userAgent.isEmpty()) httpFactory.setUserAgent(userAgent);
-
-        Map<String, String> headers = new HashMap<>();
-        if (referer != null && !referer.isEmpty()) headers.put("Referer", referer);
-        if (cookie != null && !cookie.isEmpty()) headers.put("Cookie", cookie);
-        if (!headers.isEmpty()) httpFactory.setDefaultRequestProperties(headers);
 
         DataSource.Factory dataSourceFactory = VideoCache.get(this).dataSourceFactory(httpFactory);
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()

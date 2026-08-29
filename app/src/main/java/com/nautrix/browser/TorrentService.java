@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.IBinder;
+import android.webkit.CookieManager;
 
 import com.frostwire.jlibtorrent.SessionManager;
 import com.frostwire.jlibtorrent.Sha1Hash;
@@ -47,6 +48,7 @@ public final class TorrentService extends Service {
     private static final String PREFS = "nautrix_torrents";
     private static final String KEY_SOURCES = "sources";
     private static final int MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
+    private static final int MAX_HTTPS_REDIRECTS = 5;
 
     private static final String ACTION_ADD_MAGNET = "com.nautrix.browser.ADD_MAGNET";
     private static final String ACTION_ADD_FILE = "com.nautrix.browser.ADD_TORRENT_FILE";
@@ -70,6 +72,7 @@ public final class TorrentService extends Service {
     private ScheduledExecutorService worker;
     private SessionManager session;
     private boolean restored;
+    private volatile boolean handlingCommand;
 
     public static void addMagnet(Context context, String magnet) {
         if (magnet == null || !magnet.toLowerCase(Locale.ROOT).startsWith("magnet:?")) {
@@ -80,7 +83,9 @@ public final class TorrentService extends Service {
     }
 
     public static void wake(Context context) {
-        start(context, new Intent(context, TorrentService.class));
+        if (hasPersistedSources(context)) {
+            start(context, new Intent(context, TorrentService.class));
+        }
     }
 
     public static void addTorrentFile(Context context, Uri uri) {
@@ -141,6 +146,16 @@ public final class TorrentService extends Service {
         else context.startService(intent);
     }
 
+    private static boolean hasPersistedSources(Context context) {
+        String raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_SOURCES, "[]");
+        try {
+            return new JSONArray(raw).length() > 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -161,6 +176,7 @@ public final class TorrentService extends Service {
     }
 
     private void handleIntent(Intent intent) {
+        handlingCommand = true;
         try {
             ensureSession();
             if (intent == null || intent.getAction() == null) return;
@@ -179,11 +195,13 @@ public final class TorrentService extends Service {
                 int token = intent.getIntExtra(EXTRA_INDEX, Integer.MIN_VALUE);
                 control(action, commandKeys.get(token));
             }
-            refresh();
         } catch (Exception error) {
             String detail = error.getMessage();
             serviceMessage = "Falha no torrent" + (detail == null ? "" : ": " + detail);
             notifyStatus(serviceMessage);
+        } finally {
+            handlingCommand = false;
+            refresh();
         }
     }
 
@@ -397,26 +415,55 @@ public final class TorrentService extends Service {
 
     private File fetchTorrent(String source, String userAgent, String cookie, String referer)
             throws Exception {
-        Uri uri = Uri.parse(source);
-        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+        String currentUrl = NavigationSecurityPolicy.safeHttpsUrl(source);
+        if (currentUrl == null) {
             throw new IllegalArgumentException("O .torrent remoto precisa usar HTTPS");
         }
-        HttpsURLConnection connection = (HttpsURLConnection) new URL(source).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(20_000);
-        connection.setInstanceFollowRedirects(true);
-        if (userAgent != null) connection.setRequestProperty("User-Agent", userAgent);
-        if (cookie != null) connection.setRequestProperty("Cookie", cookie);
-        if (referer != null && referer.startsWith("https://")) {
-            connection.setRequestProperty("Referer", referer);
+        String initialUrl = currentUrl;
+        String safeReferer = NavigationSecurityPolicy.originOnly(referer);
+        HttpsURLConnection connection = null;
+        for (int redirect = 0; redirect <= MAX_HTTPS_REDIRECTS; redirect++) {
+            connection = (HttpsURLConnection) new URL(currentUrl).openConnection();
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(20_000);
+            connection.setInstanceFollowRedirects(false);
+            String safeUserAgent = cleanHeader(userAgent);
+            if (safeUserAgent != null) connection.setRequestProperty("User-Agent", safeUserAgent);
+            if (safeReferer != null) connection.setRequestProperty("Referer", safeReferer);
+
+            String requestCookie = null;
+            try {
+                requestCookie = cleanHeader(CookieManager.getInstance().getCookie(currentUrl));
+            } catch (Exception ignored) {
+            }
+            if (requestCookie == null
+                    && NavigationSecurityPolicy.sameHttpsOrigin(initialUrl, currentUrl)) {
+                requestCookie = cleanHeader(cookie);
+            }
+            if (requestCookie != null) connection.setRequestProperty("Cookie", requestCookie);
+
+            connection.connect();
+            int responseCode = connection.getResponseCode();
+            if (responseCode / 100 == 2) break;
+            if (responseCode / 100 != 3 || redirect == MAX_HTTPS_REDIRECTS) {
+                connection.disconnect();
+                throw new IllegalArgumentException("Servidor respondeu " + responseCode);
+            }
+            String location = connection.getHeaderField("Location");
+            if (location == null) {
+                connection.disconnect();
+                throw new IllegalArgumentException("Redirecionamento sem destino");
+            }
+            String nextUrl = NavigationSecurityPolicy.safeHttpsUrl(
+                    new URL(connection.getURL(), location).toString());
+            connection.disconnect();
+            if (nextUrl == null) {
+                throw new IllegalArgumentException("Redirecionamento inseguro bloqueado");
+            }
+            currentUrl = nextUrl;
+            connection = null;
         }
-        connection.connect();
-        if (connection.getResponseCode() / 100 != 2) {
-            throw new IllegalArgumentException("Servidor respondeu " + connection.getResponseCode());
-        }
-        if (!"https".equalsIgnoreCase(connection.getURL().getProtocol())) {
-            throw new IllegalArgumentException("Redirecionamento inseguro bloqueado");
-        }
+        if (connection == null) throw new IllegalArgumentException("Falha no redirecionamento");
         File target = new File(metadataDirectory(),
                 "torrent-" + System.currentTimeMillis() + ".torrent");
         try (InputStream input = connection.getInputStream();
@@ -426,6 +473,12 @@ public final class TorrentService extends Service {
             connection.disconnect();
         }
         return target;
+    }
+
+    private static String cleanHeader(String value) {
+        if (value == null) return null;
+        String cleaned = value.replace("\r", "").replace("\n", "").trim();
+        return cleaned.isEmpty() ? null : cleaned;
     }
 
     private static void copyLimited(InputStream input, FileOutputStream output) throws Exception {
@@ -493,7 +546,16 @@ public final class TorrentService extends Service {
             }
             commandKeys = Collections.unmodifiableMap(commands);
             latest = Collections.unmodifiableList(snapshots);
-            if (snapshots.isEmpty()) serviceMessage = "Nenhum torrent ativo";
+            if (snapshots.isEmpty()) {
+                serviceMessage = "Nenhum torrent ativo";
+                synchronized (sourceLock) {
+                    if (sources.isEmpty() && !handlingCommand) {
+                        stopForeground(STOP_FOREGROUND_REMOVE);
+                        stopSelf();
+                        return;
+                    }
+                }
+            }
             else serviceMessage = snapshots.size() + " torrent(s) • " + formatRate(totalRate);
             notifyStatus(serviceMessage);
         } catch (Throwable error) {
