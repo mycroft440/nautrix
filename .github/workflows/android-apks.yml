@@ -1,4 +1,4 @@
-name: Android APKs
+name: Android packages
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug and release APKs
+    name: Build APKs and release AAB
     runs-on: ubuntu-latest
     timeout-minutes: 75
 
@@ -101,22 +101,24 @@ jobs:
           echo "NAUTRIX_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
           echo "NAUTRIX_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
-      - name: Run Java tests and build APKs
-        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleRelease
+      - name: Run tests and build APKs/AAB
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleRelease bundleRelease
 
-      - name: Verify and name APKs
+      - name: Verify and name Android packages
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/Nautrix-debug.apk
           cp app/build/outputs/apk/release/app-release.apk dist/Nautrix-release.apk
+          cp app/build/outputs/bundle/release/app-release.aab dist/Nautrix-release.aab
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose dist/Nautrix-debug.apk
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose dist/Nautrix-release.apk
-          sha256sum dist/Nautrix-debug.apk dist/Nautrix-release.apk > dist/SHA256SUMS.txt
+          jarsigner -verify -strict dist/Nautrix-release.aab
+          sha256sum dist/Nautrix-debug.apk dist/Nautrix-release.apk dist/Nautrix-release.aab > dist/SHA256SUMS.txt
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nautrix-debug
+          name: Nautrix-debug-apk
           path: |
             dist/Nautrix-debug.apk
             dist/SHA256SUMS.txt
@@ -126,9 +128,19 @@ jobs:
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nautrix-release
+          name: Nautrix-release-apk
           path: |
             dist/Nautrix-release.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nautrix-release-aab
+          path: |
+            dist/Nautrix-release.aab
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
