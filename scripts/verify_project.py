@@ -100,9 +100,11 @@ def main() -> int:
             "desktop user-agent must follow the installed WebView version")
 
     blocker = read_source("AdBlockEngine")
-    for capability in ["nativeshouldblock", "nativecosmeticresources", "easylist.txt", "easyprivacy.txt",
-                       "AtomicFile", "startWrite", "finishWrite", "failWrite"]:
-        require(capability in blocker, f"adblock capability missing: {capability}")
+    blocker_lower = blocker.lower()
+    for capability in ["nativeshouldblock", "nativecosmeticresources", "easylist.txt", "easyprivacy.txt"]:
+        require(capability in blocker_lower, f"adblock capability missing: {capability}")
+    for capability in ["AtomicFile", "startWrite", "finishWrite", "failWrite"]:
+        require(capability in blocker, f"atomic adblock cache capability missing: {capability}")
 
     cargo = (ROOT / "native/adblock_android/Cargo.toml").read_text(encoding="utf-8")
     require('adblock = { version = "=0.13.3"' in cargo, "adblock-rust version must be pinned")
