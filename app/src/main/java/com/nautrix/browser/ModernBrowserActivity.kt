@@ -61,6 +61,9 @@ class ModernBrowserActivity : BrowserActivity() {
     private var homeVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // This activity is exported for launcher/deep-link use. Never allow another app to hide
+        // browser chrome by injecting BrowserActivity.EXTRA_WEB_APP_MODE into an explicit Intent.
+        intent?.removeExtra(EXTRA_WEB_APP_MODE)
         super.onCreate(savedInstanceState)
         applyModernChrome()
     }
