@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -36,22 +37,23 @@ class NautrixApplication : Application(), Application.ActivityLifecycleCallbacks
         val browserShell = root.getChildAt(2) as? FrameLayout ?: return
         val navigation = root.getChildAt(3) as? LinearLayout ?: return
 
-        WindowCompat.enableEdgeToEdge(activity.window)
         WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
 
-        // Android 15+ enforces edge-to-edge for modern target SDKs. Keep backgrounds behind the
-        // system bars, but move all interactive browser chrome inside the safe system-bar area.
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val safe = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
-            )
-            view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
-            insets
+        // Android 15+ enforces edge-to-edge for apps targeting modern SDKs. Keep the background
+        // behind system bars, but move all interactive browser chrome inside the safe area.
+        if (Build.VERSION.SDK_INT >= 35) {
+            ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+                val safe = insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+                )
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
+            ViewCompat.requestApplyInsets(root)
         }
-        ViewCompat.requestApplyInsets(root)
 
         root.setBackgroundColor(color(BACKGROUND))
 
