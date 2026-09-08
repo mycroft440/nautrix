@@ -142,6 +142,9 @@ open class BrowserActivity : Activity() {
         autoDnsManager.installWebViewProxy { openInitialTabs() }
     }
 
+    /** URL used by normal Home/New Tab actions. ModernBrowserActivity overrides this with about:blank. */
+    protected open fun browserHomeUrl(): String = HOME_URL
+
     private fun openInitialTabs() {
         if (initialTabsOpened || isFinishing || isDestroyed) return
         initialTabsOpened = true
@@ -151,7 +154,7 @@ open class BrowserActivity : Activity() {
         if (requested != null) {
             createTab(requested, true)
         } else if (!restoreSession()) {
-            createTab(HOME_URL, true)
+            createTab(browserHomeUrl(), true)
         }
     }
 
@@ -222,14 +225,14 @@ open class BrowserActivity : Activity() {
         val navigation = LinearLayout(this).apply {
             gravity = Gravity.CENTER
             setBackgroundColor(surface)
-            addView(bottomButton("⌂", "Início") { currentWebView().loadUrl(HOME_URL) })
+            addView(bottomButton("⌂", "Início") { currentWebView().loadUrl(browserHomeUrl()) })
         }
         shieldCounter = bottomButton("🛡 0", "Bloqueador de anúncios") { showAdBlockPanel() }
         navigation.addView(shieldCounter)
-        navigation.addView(bottomButton("＋", "Nova aba") { createTab(HOME_URL, true) })
+        navigation.addView(bottomButton("＋", "Nova aba") { createTab(browserHomeUrl(), true) })
         tabCounter = bottomButton("1", "Abas") { showTabSwitcher() }.apply {
             setOnLongClickListener {
-                createTab(HOME_URL, true)
+                createTab(browserHomeUrl(), true)
                 true
             }
         }
@@ -348,7 +351,7 @@ open class BrowserActivity : Activity() {
         removed.webView.destroy()
         if (tabs.isEmpty()) {
             currentIndex = -1
-            createTab(HOME_URL, true)
+            createTab(browserHomeUrl(), true)
         } else {
             selectTab(currentIndex.coerceAtMost(tabs.lastIndex))
         }
@@ -364,7 +367,7 @@ open class BrowserActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Abas abertas")
             .setItems(labels) { _, which -> selectTab(which) }
-            .setPositiveButton("Nova aba") { _, _ -> createTab(HOME_URL, true) }
+            .setPositiveButton("Nova aba") { _, _ -> createTab(browserHomeUrl(), true) }
             .setNegativeButton("Fechar atual") { _, _ -> closeCurrentTab() }
             .show()
     }
@@ -388,7 +391,7 @@ open class BrowserActivity : Activity() {
         menu.menu.add("Limpar dados de navegação")
         menu.setOnMenuItemClickListener { item ->
             when (val title = item.title.toString()) {
-                "Nova aba" -> createTab(HOME_URL, true)
+                "Nova aba" -> createTab(browserHomeUrl(), true)
                 "Fechar aba" -> closeCurrentTab()
                 "Adicionar favorito" -> addBookmark()
                 "Favoritos" -> showBookmarks()
@@ -976,7 +979,7 @@ open class BrowserActivity : Activity() {
             val count = saved.length().coerceAtMost(MAX_RESTORED_TABS)
             for (index in 0 until count) {
                 val value = saved.getJSONObject(index)
-                val url = value.optString("url", HOME_URL)
+                val url = value.optString("url", browserHomeUrl())
                 if (url.startsWith("https://") || url == "about:blank") {
                     createTab(url, false)
                     tabs.last().desktop = value.optBoolean("desktop", false)
@@ -1041,7 +1044,7 @@ open class BrowserActivity : Activity() {
         if (index < 0 || tab.webView !== crashedView) return true
 
         val targetUrl = tab.pageUrl?.takeIf { it.startsWith("https://") || it == "about:blank" }
-            ?: HOME_URL
+            ?: browserHomeUrl()
         val wasCurrent = index == currentIndex
         (crashedView.parent as? ViewGroup)?.removeView(crashedView)
         try {
