@@ -80,22 +80,29 @@ def main() -> int:
         "toggleDesktopMode(",
         "onSafeBrowsingHit",
         "shouldInterceptRequest",
+        "onRenderProcessGone",
+        "recoverTabAfterRendererGone",
+        "RenderProcessGoneDetail",
         "openVideoPlayer(",
         "VideoPlayerActivity.createIntent",
         "installCurrentSite(",
         "showCachedVideos(",
         "showAutoDnsPanel(",
         "NavigationSecurityPolicy.mayLaunchExternal",
+        "NavigationSecurityPolicy.safeHttpsUrl(uri.toString())",
         "PerformanceSetupActivity::class.java",
         "showMediaDownloadPicker(",
         "openDownloadManager(",
         "confirmMagnet(",
     ]:
         require(capability in activity, f"browser capability missing: {capability}")
+    require("Chrome/131.0.0.0 Safari/537.36" not in activity,
+            "desktop user-agent must follow the installed WebView version")
 
     blocker = read_source("AdBlockEngine")
-    for capability in ["nativeshouldblock", "nativecosmeticresources", "easylist.txt", "easyprivacy.txt"]:
-        require(capability in blocker.lower(), f"adblock capability missing: {capability}")
+    for capability in ["nativeshouldblock", "nativecosmeticresources", "easylist.txt", "easyprivacy.txt",
+                       "AtomicFile", "startWrite", "finishWrite", "failWrite"]:
+        require(capability in blocker, f"adblock capability missing: {capability}")
 
     cargo = (ROOT / "native/adblock_android/Cargo.toml").read_text(encoding="utf-8")
     require('adblock = { version = "=0.13.3"' in cargo, "adblock-rust version must be pinned")
@@ -116,8 +123,14 @@ def main() -> int:
     auto_dns = read_source("AutoDnsManager")
     for capability in ["resolveAll", "InetAddress.getAllByName", "clearProxyOverride", "DNS privado"]:
         require(capability in auto_dns, f"safe Android DNS capability missing: {capability}")
+    require("completion.run()" in auto_dns,
+            "browser startup must not wait asynchronously before creating the first tab")
     require("DatagramSocket" not in auto_dns, "unencrypted UDP DNS must stay disabled")
     require("addProxyRule" not in auto_dns, "the WebView must not use the legacy DNS proxy")
+
+    download_registry = read_source("DownloadRegistry")
+    for capability in ["safeHttpsUrl", "originOnly", "MAX_FILE_NAME_CHARS", "cleanHeader"]:
+        require(capability in download_registry, f"download hardening missing: {capability}")
 
     download_manager = read_source("DownloadManagerActivity")
     for capability in ["DownloadRegistry", "TorrentService", "Adicionar magnet", "Abrir .torrent"]:
@@ -136,6 +149,7 @@ def main() -> int:
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
     require("org.jetbrains.kotlin.android" in gradle, "Kotlin Android plugin missing")
     require("targetSdk 36" in gradle, "targetSdk 36 required")
+    require('androidx.webkit:webkit:1.17.0' in gradle, "AndroidX WebKit hardening version missing")
     for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash",
                    "media3-datasource-okhttp", "media3-ui", "androidx.webkit", "jlibtorrent"]:
         require(module in gradle, f"Media3 module missing: {module}")
