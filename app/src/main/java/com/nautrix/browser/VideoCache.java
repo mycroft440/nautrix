@@ -6,7 +6,7 @@ import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.CacheSpan;
-import androidx.media3.datasource.cache.NoOpCacheEvictor;
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
 
 import java.io.File;
@@ -15,7 +15,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.NavigableSet;
 
-/** Persistent on-play video cache. Young media is never evicted before five days. */
+/** Persistent on-play video cache with a hard storage cap and best-effort age retention. */
 public final class VideoCache {
     public static final long MIN_RETENTION_MS = 5L * 24L * 60L * 60L * 1_000L;
     private static final long NORMAL_RETENTION_MS = 7L * 24L * 60L * 60L * 1_000L;
@@ -31,7 +31,7 @@ public final class VideoCache {
 
     private VideoCache(Context context) {
         File directory = new File(context.getFilesDir(), "video_media_cache");
-        cache = new SimpleCache(directory, new NoOpCacheEvictor(),
+        cache = new SimpleCache(directory, new LeastRecentlyUsedCacheEvictor(TARGET_BYTES),
                 new StandaloneDatabaseProvider(context));
         Thread cleanup = new Thread(this::removeExpiredSpans, "nautrix-video-cache-cleanup");
         cleanup.setDaemon(true);
@@ -62,22 +62,16 @@ public final class VideoCache {
     private void removeExpiredSpans() {
         try {
             long now = System.currentTimeMillis();
-            long size = cache.getCacheSpace();
             List<CacheSpan> eligible = new ArrayList<>();
             for (String key : cache.getKeys()) {
                 NavigableSet<CacheSpan> spans = cache.getCachedSpans(key);
                 for (CacheSpan span : spans) {
                     long age = now - span.lastTouchTimestamp;
-                    if (age >= MIN_RETENTION_MS) eligible.add(span);
+                    if (age >= NORMAL_RETENTION_MS) eligible.add(span);
                 }
             }
             eligible.sort(Comparator.comparingLong(span -> span.lastTouchTimestamp));
-            for (CacheSpan span : eligible) {
-                long age = now - span.lastTouchTimestamp;
-                if (age < NORMAL_RETENTION_MS && size <= TARGET_BYTES) continue;
-                cache.removeSpan(span);
-                size -= span.length;
-            }
+            for (CacheSpan span : eligible) cache.removeSpan(span);
         } catch (Exception ignored) {
         }
     }
