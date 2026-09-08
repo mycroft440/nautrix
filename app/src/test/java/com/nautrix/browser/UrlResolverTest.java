@@ -21,6 +21,13 @@ public final class UrlResolverTest {
     }
 
     @Test
+    public void convertsInternationalizedDomainToPunycode() {
+        assertEquals("https://xn--mnich-kva.de/path", UrlResolver.resolve("münich.de/path"));
+        assertEquals("https://xn--mnich-kva.de/path", UrlResolver.resolve("https://münich.de/path"));
+        assertEquals("https://xn--mnich-kva.de/path", UrlResolver.resolve("http://münich.de/path"));
+    }
+
+    @Test
     public void searchesWords() {
         assertEquals("https://duckduckgo.com/?q=teste+nautrix", UrlResolver.resolve("teste nautrix"));
     }

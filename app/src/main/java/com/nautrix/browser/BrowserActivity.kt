@@ -24,6 +24,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SafeBrowsingResponse
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
@@ -47,8 +48,10 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 import java.util.LinkedHashSet
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 /** A small, standalone Android browser. Chromium overlay experiments remain separate. */
@@ -139,6 +142,9 @@ open class BrowserActivity : Activity() {
         autoDnsManager.installWebViewProxy { openInitialTabs() }
     }
 
+    /** URL used by normal Home/New Tab actions. ModernBrowserActivity overrides this with about:blank. */
+    protected open fun browserHomeUrl(): String = HOME_URL
+
     private fun openInitialTabs() {
         if (initialTabsOpened || isFinishing || isDestroyed) return
         initialTabsOpened = true
@@ -148,7 +154,7 @@ open class BrowserActivity : Activity() {
         if (requested != null) {
             createTab(requested, true)
         } else if (!restoreSession()) {
-            createTab(HOME_URL, true)
+            createTab(browserHomeUrl(), true)
         }
     }
 
@@ -219,14 +225,14 @@ open class BrowserActivity : Activity() {
         val navigation = LinearLayout(this).apply {
             gravity = Gravity.CENTER
             setBackgroundColor(surface)
-            addView(bottomButton("⌂", "Início") { currentWebView().loadUrl(HOME_URL) })
+            addView(bottomButton("⌂", "Início") { currentWebView().loadUrl(browserHomeUrl()) })
         }
         shieldCounter = bottomButton("🛡 0", "Bloqueador de anúncios") { showAdBlockPanel() }
         navigation.addView(shieldCounter)
-        navigation.addView(bottomButton("＋", "Nova aba") { createTab(HOME_URL, true) })
+        navigation.addView(bottomButton("＋", "Nova aba") { createTab(browserHomeUrl(), true) })
         tabCounter = bottomButton("1", "Abas") { showTabSwitcher() }.apply {
             setOnLongClickListener {
-                createTab(HOME_URL, true)
+                createTab(browserHomeUrl(), true)
                 true
             }
         }
@@ -345,7 +351,7 @@ open class BrowserActivity : Activity() {
         removed.webView.destroy()
         if (tabs.isEmpty()) {
             currentIndex = -1
-            createTab(HOME_URL, true)
+            createTab(browserHomeUrl(), true)
         } else {
             selectTab(currentIndex.coerceAtMost(tabs.lastIndex))
         }
@@ -361,7 +367,7 @@ open class BrowserActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Abas abertas")
             .setItems(labels) { _, which -> selectTab(which) }
-            .setPositiveButton("Nova aba") { _, _ -> createTab(HOME_URL, true) }
+            .setPositiveButton("Nova aba") { _, _ -> createTab(browserHomeUrl(), true) }
             .setNegativeButton("Fechar atual") { _, _ -> closeCurrentTab() }
             .show()
     }
@@ -385,7 +391,7 @@ open class BrowserActivity : Activity() {
         menu.menu.add("Limpar dados de navegação")
         menu.setOnMenuItemClickListener { item ->
             when (val title = item.title.toString()) {
-                "Nova aba" -> createTab(HOME_URL, true)
+                "Nova aba" -> createTab(browserHomeUrl(), true)
                 "Fechar aba" -> closeCurrentTab()
                 "Adicionar favorito" -> addBookmark()
                 "Favoritos" -> showBookmarks()
@@ -452,13 +458,20 @@ open class BrowserActivity : Activity() {
 
     private fun reload() = currentWebView().reload()
 
+    private fun desktopUserAgent(): String {
+        val defaultAgent = WebSettings.getDefaultUserAgent(this)
+        val chromeVersion = Regex("Chrome/([0-9.]+)").find(defaultAgent)?.groupValues?.getOrNull(1)
+            ?: "131.0.0.0"
+        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36"
+    }
+
     private fun toggleDesktopMode() {
         val tab = currentTab()
         tab.desktop = !tab.desktop
         tab.webView.settings.apply {
             if (tab.desktop) {
-                userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                userAgentString = desktopUserAgent()
                 useWideViewPort = true
                 loadWithOverviewMode = true
             } else {
@@ -726,9 +739,9 @@ open class BrowserActivity : Activity() {
         val launch = Intent(this, InstalledSiteActivity::class.java)
             .setAction(Intent.ACTION_VIEW)
             .setData(Uri.parse(url))
-            .putExtra(EXTRA_WEB_APP_MODE, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val shortcut = ShortcutInfo.Builder(this, "nautrix_site_${Integer.toHexString(url.hashCode())}")
+        val shortcutId = UUID.nameUUIDFromBytes(url.toByteArray(StandardCharsets.UTF_8)).toString()
+        val shortcut = ShortcutInfo.Builder(this, "nautrix_site_$shortcutId")
             .setShortLabel(pageTitle)
             .setLongLabel("Abrir $pageTitle no Nautrix")
             .setIcon(Icon.createWithResource(this, R.drawable.ic_installed_site))
@@ -776,23 +789,38 @@ open class BrowserActivity : Activity() {
     private fun confirmClearData() {
         AlertDialog.Builder(this)
             .setTitle("Limpar dados de navegação?")
-            .setMessage("Cookies, cache, histórico das abas e sessão serão apagados. Favoritos serão mantidos.")
+            .setMessage(
+                "Cookies, cache, histórico das abas, sessão e cache/histórico de vídeos serão apagados. " +
+                    "Favoritos serão mantidos.",
+            )
             .setPositiveButton("Limpar") { _, _ -> clearBrowsingData() }
             .setNegativeButton("Cancelar", null)
             .show()
     }
 
     private fun clearBrowsingData() {
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
         WebStorage.getInstance().deleteAllData()
         tabs.forEach { tab ->
             tab.webView.clearCache(true)
             tab.webView.clearHistory()
             tab.webView.clearFormData()
         }
-        preferences.edit().remove("session_tabs").apply()
-        Toast.makeText(this, "Dados apagados", Toast.LENGTH_SHORT).show()
+        preferences.edit().remove("session_tabs").remove("session_index").apply()
+        VideoHistory.clear(this)
+
+        val pending = AtomicInteger(2)
+        val completed = {
+            if (pending.decrementAndGet() == 0) {
+                runOnUiThread {
+                    Toast.makeText(this, "Dados apagados", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        CookieManager.getInstance().removeAllCookies {
+            CookieManager.getInstance().flush()
+            completed()
+        }
+        VideoCache.get(this).clearAsync { completed() }
     }
 
     private fun beginDownload(download: PendingDownload) {
@@ -951,14 +979,12 @@ open class BrowserActivity : Activity() {
             val count = saved.length().coerceAtMost(MAX_RESTORED_TABS)
             for (index in 0 until count) {
                 val value = saved.getJSONObject(index)
-                val url = value.optString("url", HOME_URL)
+                val url = value.optString("url", browserHomeUrl())
                 if (url.startsWith("https://") || url == "about:blank") {
                     createTab(url, false)
                     tabs.last().desktop = value.optBoolean("desktop", false)
                     if (tabs.last().desktop) {
-                        tabs.last().webView.settings.userAgentString =
-                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-                            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                        tabs.last().webView.settings.userAgentString = desktopUserAgent()
                     }
                 }
             }
@@ -1012,6 +1038,45 @@ open class BrowserActivity : Activity() {
     private fun currentWebView(): WebView = currentTab().webView
 
     private fun dp(value: Int): Int = Math.round(value * resources.displayMetrics.density)
+
+    private fun recoverTabAfterRendererGone(tab: BrowserTab, crashedView: WebView, didCrash: Boolean): Boolean {
+        val index = tabs.indexOf(tab)
+        if (index < 0 || tab.webView !== crashedView) return true
+
+        val targetUrl = tab.pageUrl?.takeIf { it.startsWith("https://") || it == "about:blank" }
+            ?: browserHomeUrl()
+        val wasCurrent = index == currentIndex
+        (crashedView.parent as? ViewGroup)?.removeView(crashedView)
+        try {
+            crashedView.destroy()
+        } catch (_: Exception) {
+        }
+
+        val replacement = WebView(this)
+        tab.webView = replacement
+        tab.blockedRequests.set(0)
+        tab.clearMedia()
+        tab.pageUrl = null
+        configureWebView(tab)
+        if (tab.desktop) replacement.settings.userAgentString = desktopUserAgent()
+
+        if (wasCurrent) {
+            browserHost.removeAllViews()
+            browserHost.addView(
+                replacement,
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+            )
+            progressBar.visibility = View.GONE
+            updateShieldCounter(tab)
+            Toast.makeText(
+                this,
+                if (didCrash) "A aba falhou e foi recarregada" else "A aba foi recuperada após falta de memória",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        replacement.loadUrl(targetUrl)
+        return true
+    }
 
     private fun openExternalIntent(view: WebView, rawIntent: Intent, fallback: String?) {
         val scheme = rawIntent.data?.scheme?.lowercase(Locale.ROOT)
@@ -1104,7 +1169,9 @@ open class BrowserActivity : Activity() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
             val scheme = uri.scheme
-            if (scheme.equals("https", ignoreCase = true)) return false
+            if (scheme.equals("https", ignoreCase = true)) {
+                return NavigationSecurityPolicy.safeHttpsUrl(uri.toString()) == null
+            }
             if (scheme.equals("http", ignoreCase = true)) {
                 NavigationSecurityPolicy.upgradeHttpToHttps(uri.toString())?.let(view::loadUrl)
                 return true
@@ -1124,7 +1191,9 @@ open class BrowserActivity : Activity() {
                 return true
             }
             if (scheme.equals("magnet", ignoreCase = true)) {
-                confirmMagnet(uri.toString())
+                if (NavigationSecurityPolicy.mayLaunchExternal(request.isForMainFrame, request.hasGesture())) {
+                    confirmMagnet(uri.toString())
+                }
                 return true
             }
             if (
@@ -1201,6 +1270,10 @@ open class BrowserActivity : Activity() {
                 Toast.makeText(this@BrowserActivity, "Página perigosa bloqueada", Toast.LENGTH_LONG).show()
             }
         }
+
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            return recoverTabAfterRendererGone(tab, view, detail.didCrash())
+        }
     }
 
     private inner class NautrixChromeClient(private val tab: BrowserTab) : WebChromeClient() {
@@ -1246,7 +1319,7 @@ open class BrowserActivity : Activity() {
         }
     }
 
-    private class BrowserTab(val webView: WebView) {
+    private class BrowserTab(var webView: WebView) {
         var title: String = "Nova aba"
         var desktop: Boolean = false
         @Volatile var pageUrl: String? = null

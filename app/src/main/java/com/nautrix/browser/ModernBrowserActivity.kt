@@ -60,7 +60,12 @@ class ModernBrowserActivity : BrowserActivity() {
     private var pendingSearch: String? = null
     private var homeVisible = false
 
+    protected override fun browserHomeUrl(): String = "about:blank"
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // This activity is exported for launcher/deep-link use. Never allow another app to hide
+        // browser chrome by injecting BrowserActivity.EXTRA_WEB_APP_MODE into an explicit Intent.
+        intent?.removeExtra(EXTRA_WEB_APP_MODE)
         super.onCreate(savedInstanceState)
         applyModernChrome()
     }
@@ -218,17 +223,18 @@ class ModernBrowserActivity : BrowserActivity() {
 
         wrapBrowserWithOfflineHome(root)
 
-        // Home is a native layer. It does not navigate to DuckDuckGo or any other remote page.
+        // Unload the current page when showing the native home. This stops page JavaScript,
+        // sockets, media and timers instead of merely covering an active page with an overlay.
         home.setOnClickListener {
-            currentWebView()?.stopLoading()
-            homeOwnerWebView = currentWebView()
+            val webView = currentWebView()
+            webView?.stopLoading()
+            webView?.loadUrl("about:blank")
+            homeOwnerWebView = webView
             expectHomeOnNextWebView = false
             pendingSearch = null
             showOfflineHome(clearAddress = true)
         }
 
-        // BrowserActivity still creates the actual tab. We display the native home immediately,
-        // then stop the legacy remote-home request as soon as the new WebView becomes current.
         newTab.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
                 homeOwnerWebView = null
@@ -262,8 +268,6 @@ class ModernBrowserActivity : BrowserActivity() {
                         }
                     }
                 } else if (homeVisible && homeOwnerWebView !== webView) {
-                    // Switching to another existing tab should reveal that tab, not keep the
-                    // previous tab's offline-home layer over it.
                     hideOfflineHome()
                 }
             }
@@ -271,8 +275,6 @@ class ModernBrowserActivity : BrowserActivity() {
             override fun onChildViewRemoved(parent: View?, child: View?) = Unit
         })
 
-        // Normal launches start on the offline home immediately. HTTPS deep links still open
-        // directly into the requested site.
         if (
             intent?.data?.scheme.equals("https", ignoreCase = true) ||
             intent?.data?.scheme.equals("http", ignoreCase = true)
@@ -344,8 +346,6 @@ class ModernBrowserActivity : BrowserActivity() {
             ),
         )
 
-        // The 39/61 split places the search surface a little above the visual centre on phones
-        // of different aspect ratios without hard-coding a pixel offset.
         vertical.addView(
             Space(this),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.39f),
@@ -487,8 +487,6 @@ class ModernBrowserActivity : BrowserActivity() {
 
         val webView = currentWebView()
         if (webView == null) {
-            // Network/proxy setup can still be starting. Keep the offline home visible and run
-            // the search as soon as BrowserActivity attaches the first WebView.
             pendingSearch = query
             expectHomeOnNextWebView = true
             return

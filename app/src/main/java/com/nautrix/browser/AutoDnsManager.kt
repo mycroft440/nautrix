@@ -45,17 +45,21 @@ class AutoDnsManager private constructor(context: Context) {
 
     fun installWebViewProxy(ready: Runnable?) {
         val completion = ready ?: Runnable { }
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-            mainHandler.post(completion)
-            return
-        }
+
+        // There is no Nautrix proxy to wait for anymore. Create the first browser tab immediately
+        // so the visible toolbar can never exist with currentIndex == -1 while an asynchronous
+        // ProxyController callback is pending. Clearing a stale override remains a best-effort
+        // defensive cleanup and must not gate browser startup.
+        if (Looper.myLooper() == Looper.getMainLooper()) completion.run() else mainHandler.post(completion)
+
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return
         try {
             ProxyController.getInstance().clearProxyOverride(
                 Executor { command -> mainHandler.post(command) },
-                completion,
+                Runnable { },
             )
         } catch (_: Exception) {
-            mainHandler.post(completion)
+            // The Android resolver is still used even if proxy cleanup is unavailable.
         }
     }
 

@@ -18,16 +18,18 @@ final class DownloadRegistry {
     private static final String PREFS = "nautrix_downloads";
     private static final String KEY_ENTRIES = "entries";
     private static final int MAX_ENTRIES = 100;
+    private static final int MAX_FILE_NAME_CHARS = 180;
 
     private DownloadRegistry() { }
 
     static long enqueue(Context context, String url, String userAgent,
                         String contentDisposition, String mimeType, String referer) {
-        Uri uri = Uri.parse(url);
-        if (!"https".equalsIgnoreCase(uri.getScheme())) {
-            throw new IllegalArgumentException("Only HTTPS downloads are accepted");
+        String safeUrl = NavigationSecurityPolicy.safeHttpsUrl(url);
+        if (safeUrl == null) {
+            throw new IllegalArgumentException("Only credential-free HTTPS downloads are accepted");
         }
-        String guessed = URLUtil.guessFileName(url, contentDisposition, mimeType);
+        Uri uri = Uri.parse(safeUrl);
+        String guessed = URLUtil.guessFileName(safeUrl, contentDisposition, mimeType);
         String safeName = sanitizeFileName(guessed);
         String destination = "Nautrix/" + System.currentTimeMillis() + "-" + safeName;
         DownloadManager.Request request = new DownloadManager.Request(uri)
@@ -39,17 +41,16 @@ final class DownloadRegistry {
                 .setAllowedOverRoaming(false)
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, destination);
         if (mimeType != null && !mimeType.trim().isEmpty()) request.setMimeType(mimeType);
-        if (userAgent != null && !userAgent.trim().isEmpty()) {
-            request.addRequestHeader("User-Agent", userAgent);
-        }
+        String safeUserAgent = cleanHeader(userAgent);
+        if (safeUserAgent != null) request.addRequestHeader("User-Agent", safeUserAgent);
         String safeReferer = NavigationSecurityPolicy.originOnly(referer);
         if (safeReferer != null) request.addRequestHeader("Referer", safeReferer);
 
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         if (manager == null) throw new IllegalStateException("DownloadManager unavailable");
         long id = manager.enqueue(request);
-        remember(context, new Entry(id, url, safeName, mimeType, userAgent,
-                contentDisposition, referer, System.currentTimeMillis()));
+        remember(context, new Entry(id, safeUrl, safeName, mimeType, safeUserAgent,
+                contentDisposition, safeReferer, System.currentTimeMillis()));
         return id;
     }
 
@@ -69,12 +70,12 @@ final class DownloadRegistry {
                 if (item == null) continue;
                 long id = item.optLong("id", -1L);
                 String url = item.optString("url", "");
-                if (id < 0 || !url.startsWith("https://")) continue;
+                if (id < 0 || NavigationSecurityPolicy.safeHttpsUrl(url) == null) continue;
                 result.add(new Entry(id, url, item.optString("name", "Download"),
                         emptyToNull(item.optString("mime", "")),
                         emptyToNull(item.optString("agent", "")),
                         emptyToNull(item.optString("disposition", "")),
-                        emptyToNull(item.optString("referer", "")),
+                        NavigationSecurityPolicy.originOnly(item.optString("referer", "")),
                         item.optLong("created", 0L)));
             }
         } catch (Exception ignored) {
@@ -121,7 +122,19 @@ final class DownloadRegistry {
 
     private static String sanitizeFileName(String name) {
         String cleaned = name == null ? "download" : name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-        return cleaned.isEmpty() ? "download" : cleaned;
+        if (cleaned.isEmpty()) return "download";
+        if (cleaned.length() <= MAX_FILE_NAME_CHARS) return cleaned;
+
+        int dot = cleaned.lastIndexOf('.');
+        String extension = dot > 0 && cleaned.length() - dot <= 16 ? cleaned.substring(dot) : "";
+        int baseLimit = Math.max(1, MAX_FILE_NAME_CHARS - extension.length());
+        return cleaned.substring(0, baseLimit) + extension;
+    }
+
+    private static String cleanHeader(String value) {
+        if (value == null) return null;
+        String cleaned = value.replace("\r", "").replace("\n", "").trim();
+        return cleaned.isEmpty() ? null : cleaned;
     }
 
     private static String emptyToNull(String value) {

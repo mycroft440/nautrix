@@ -3,6 +3,7 @@ package com.nautrix.browser;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.util.AtomicFile;
 import android.webkit.WebResourceRequest;
 
 import org.json.JSONArray;
@@ -149,15 +150,19 @@ public final class AdBlockEngine {
             nativeReady = true;
             File directory = new File(context.getFilesDir(), "adblock");
             if (!directory.exists() && !directory.mkdirs()) return;
-            File temporary = new File(directory, "filters.tmp");
-            try (FileOutputStream output = new FileOutputStream(temporary)) {
+
+            AtomicFile storage = new AtomicFile(new File(directory, "filters.txt"));
+            FileOutputStream output = null;
+            try {
+                output = storage.startWrite();
                 output.write(combined.getBytes(StandardCharsets.UTF_8));
                 output.getFD().sync();
-            }
-            File destination = new File(directory, "filters.txt");
-            if (destination.exists() && !destination.delete()) return;
-            if (temporary.renameTo(destination)) {
+                storage.finishWrite(output);
+                output = null;
                 preferences.edit().putLong("adblock_updated_at", System.currentTimeMillis()).apply();
+            } catch (Exception error) {
+                if (output != null) storage.failWrite(output);
+                throw error;
             }
         } catch (Exception ignored) {
             // Offline and transient failures keep the last known-good rules active.

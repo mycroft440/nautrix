@@ -22,6 +22,7 @@ REQUIRED = [
 
 SOURCE_CLASSES = [
     "BrowserActivity",
+    "ModernBrowserActivity",
     "AdBlockEngine",
     "PlaybackStatusPolicy",
     "VideoPlayerActivity",
@@ -80,22 +81,38 @@ def main() -> int:
         "toggleDesktopMode(",
         "onSafeBrowsingHit",
         "shouldInterceptRequest",
+        "onRenderProcessGone",
+        "recoverTabAfterRendererGone",
+        "RenderProcessGoneDetail",
+        "browserHomeUrl",
         "openVideoPlayer(",
         "VideoPlayerActivity.createIntent",
         "installCurrentSite(",
         "showCachedVideos(",
         "showAutoDnsPanel(",
         "NavigationSecurityPolicy.mayLaunchExternal",
+        "NavigationSecurityPolicy.safeHttpsUrl(uri.toString())",
         "PerformanceSetupActivity::class.java",
         "showMediaDownloadPicker(",
         "openDownloadManager(",
         "confirmMagnet(",
     ]:
         require(capability in activity, f"browser capability missing: {capability}")
+    require("Chrome/131.0.0.0 Safari/537.36" not in activity,
+            "desktop user-agent must follow the installed WebView version")
+
+    modern = read_source("ModernBrowserActivity")
+    require("removeExtra(EXTRA_WEB_APP_MODE)" in modern,
+            "exported launcher must reject injected chromeless-mode extras")
+    require('browserHomeUrl(): String = "about:blank"' in modern,
+            "modern browser home must start from about:blank without a background network load")
 
     blocker = read_source("AdBlockEngine")
+    blocker_lower = blocker.lower()
     for capability in ["nativeshouldblock", "nativecosmeticresources", "easylist.txt", "easyprivacy.txt"]:
-        require(capability in blocker.lower(), f"adblock capability missing: {capability}")
+        require(capability in blocker_lower, f"adblock capability missing: {capability}")
+    for capability in ["AtomicFile", "startWrite", "finishWrite", "failWrite"]:
+        require(capability in blocker, f"atomic adblock cache capability missing: {capability}")
 
     cargo = (ROOT / "native/adblock_android/Cargo.toml").read_text(encoding="utf-8")
     require('adblock = { version = "=0.13.3"' in cargo, "adblock-rust version must be pinned")
@@ -109,14 +126,21 @@ def main() -> int:
     require("Servidor do site lento!" in status_policy, "slow-server feedback missing")
 
     video_cache = read_source("VideoCache")
-    for capability in ["SimpleCache", "NoOpCacheEvictor", "MIN_RETENTION_MS", "5L * 24L"]:
+    for capability in ["SimpleCache", "LeastRecentlyUsedCacheEvictor", "TARGET_BYTES"]:
         require(capability in video_cache, f"video cache capability missing: {capability}")
+    require("NoOpCacheEvictor" not in video_cache, "video cache must enforce a hard size limit")
 
     auto_dns = read_source("AutoDnsManager")
     for capability in ["resolveAll", "InetAddress.getAllByName", "clearProxyOverride", "DNS privado"]:
         require(capability in auto_dns, f"safe Android DNS capability missing: {capability}")
+    require("completion.run()" in auto_dns,
+            "browser startup must not wait asynchronously before creating the first tab")
     require("DatagramSocket" not in auto_dns, "unencrypted UDP DNS must stay disabled")
     require("addProxyRule" not in auto_dns, "the WebView must not use the legacy DNS proxy")
+
+    download_registry = read_source("DownloadRegistry")
+    for capability in ["safeHttpsUrl", "originOnly", "MAX_FILE_NAME_CHARS", "cleanHeader"]:
+        require(capability in download_registry, f"download hardening missing: {capability}")
 
     download_manager = read_source("DownloadManagerActivity")
     for capability in ["DownloadRegistry", "TorrentService", "Adicionar magnet", "Abrir .torrent"]:
@@ -129,10 +153,13 @@ def main() -> int:
 
     shortcut = read_source("InstalledSiteActivity")
     require("BrowserActivity" in shortcut, "installed-site activity missing")
+    require("removeExtra(BrowserActivity.EXTRA_WEB_APP_MODE)" in shortcut,
+            "exported installed-site activity must not trust chromeless-mode extras")
 
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
     require("org.jetbrains.kotlin.android" in gradle, "Kotlin Android plugin missing")
     require("targetSdk 36" in gradle, "targetSdk 36 required")
+    require('androidx.webkit:webkit:1.17.0' in gradle, "AndroidX WebKit hardening version missing")
     for module in ["media3-exoplayer", "media3-exoplayer-hls", "media3-exoplayer-dash",
                    "media3-datasource-okhttp", "media3-ui", "androidx.webkit", "jlibtorrent"]:
         require(module in gradle, f"Media3 module missing: {module}")
