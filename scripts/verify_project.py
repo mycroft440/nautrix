@@ -22,6 +22,7 @@ REQUIRED = [
 
 SOURCE_CLASSES = [
     "BrowserActivity",
+    "ModernBrowserActivity",
     "AdBlockEngine",
     "PlaybackStatusPolicy",
     "VideoPlayerActivity",
@@ -83,6 +84,7 @@ def main() -> int:
         "onRenderProcessGone",
         "recoverTabAfterRendererGone",
         "RenderProcessGoneDetail",
+        "browserHomeUrl",
         "openVideoPlayer(",
         "VideoPlayerActivity.createIntent",
         "installCurrentSite(",
@@ -98,6 +100,12 @@ def main() -> int:
         require(capability in activity, f"browser capability missing: {capability}")
     require("Chrome/131.0.0.0 Safari/537.36" not in activity,
             "desktop user-agent must follow the installed WebView version")
+
+    modern = read_source("ModernBrowserActivity")
+    require("removeExtra(EXTRA_WEB_APP_MODE)" in modern,
+            "exported launcher must reject injected chromeless-mode extras")
+    require('browserHomeUrl(): String = "about:blank"' in modern,
+            "modern browser home must start from about:blank without a background network load")
 
     blocker = read_source("AdBlockEngine")
     blocker_lower = blocker.lower()
