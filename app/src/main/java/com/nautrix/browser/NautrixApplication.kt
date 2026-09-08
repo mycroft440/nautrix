@@ -106,7 +106,7 @@ class NautrixApplication : Application(), Application.ActivityLifecycleCallbacks
         findHomeSearch(root, toolbar)?.let { search ->
             val capsule = search.parent as? LinearLayout ?: return@let
             (capsule.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
-                params.height = dp(activity, 56)
+                params.height = dp(activity, 58)
                 params.setMargins(dp(activity, 12), 0, dp(activity, 12), 0)
                 capsule.layoutParams = params
             }
