@@ -109,8 +109,9 @@ def main() -> int:
     require("Servidor do site lento!" in status_policy, "slow-server feedback missing")
 
     video_cache = read_source("VideoCache")
-    for capability in ["SimpleCache", "NoOpCacheEvictor", "MIN_RETENTION_MS", "5L * 24L"]:
+    for capability in ["SimpleCache", "LeastRecentlyUsedCacheEvictor", "TARGET_BYTES"]:
         require(capability in video_cache, f"video cache capability missing: {capability}")
+    require("NoOpCacheEvictor" not in video_cache, "video cache must enforce a hard size limit")
 
     auto_dns = read_source("AutoDnsManager")
     for capability in ["resolveAll", "InetAddress.getAllByName", "clearProxyOverride", "DNS privado"]:
@@ -129,6 +130,8 @@ def main() -> int:
 
     shortcut = read_source("InstalledSiteActivity")
     require("BrowserActivity" in shortcut, "installed-site activity missing")
+    require("removeExtra(BrowserActivity.EXTRA_WEB_APP_MODE)" in shortcut,
+            "exported installed-site activity must not trust chromeless-mode extras")
 
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
     require("org.jetbrains.kotlin.android" in gradle, "Kotlin Android plugin missing")
