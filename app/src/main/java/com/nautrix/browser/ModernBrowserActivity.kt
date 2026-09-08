@@ -223,10 +223,13 @@ class ModernBrowserActivity : BrowserActivity() {
 
         wrapBrowserWithOfflineHome(root)
 
-        // Home is a native layer. It does not navigate to DuckDuckGo or any other remote page.
+        // Unload the current page when showing the native home. This stops page JavaScript,
+        // sockets, media and timers instead of merely covering an active page with an overlay.
         home.setOnClickListener {
-            currentWebView()?.stopLoading()
-            homeOwnerWebView = currentWebView()
+            val webView = currentWebView()
+            webView?.stopLoading()
+            webView?.loadUrl("about:blank")
+            homeOwnerWebView = webView
             expectHomeOnNextWebView = false
             pendingSearch = null
             showOfflineHome(clearAddress = true)
@@ -265,8 +268,6 @@ class ModernBrowserActivity : BrowserActivity() {
                         }
                     }
                 } else if (homeVisible && homeOwnerWebView !== webView) {
-                    // Switching to another existing tab should reveal that tab, not keep the
-                    // previous tab's offline-home layer over it.
                     hideOfflineHome()
                 }
             }
@@ -274,8 +275,6 @@ class ModernBrowserActivity : BrowserActivity() {
             override fun onChildViewRemoved(parent: View?, child: View?) = Unit
         })
 
-        // Normal launches start on the offline home immediately. HTTPS deep links still open
-        // directly into the requested site.
         if (
             intent?.data?.scheme.equals("https", ignoreCase = true) ||
             intent?.data?.scheme.equals("http", ignoreCase = true)
