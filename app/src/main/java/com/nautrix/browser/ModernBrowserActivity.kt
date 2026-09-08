@@ -60,6 +60,8 @@ class ModernBrowserActivity : BrowserActivity() {
     private var pendingSearch: String? = null
     private var homeVisible = false
 
+    protected override fun browserHomeUrl(): String = "about:blank"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // This activity is exported for launcher/deep-link use. Never allow another app to hide
         // browser chrome by injecting BrowserActivity.EXTRA_WEB_APP_MODE into an explicit Intent.
@@ -230,8 +232,6 @@ class ModernBrowserActivity : BrowserActivity() {
             showOfflineHome(clearAddress = true)
         }
 
-        // BrowserActivity still creates the actual tab. We display the native home immediately,
-        // then stop the legacy remote-home request as soon as the new WebView becomes current.
         newTab.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
                 homeOwnerWebView = null
@@ -347,8 +347,6 @@ class ModernBrowserActivity : BrowserActivity() {
             ),
         )
 
-        // The 39/61 split places the search surface a little above the visual centre on phones
-        // of different aspect ratios without hard-coding a pixel offset.
         vertical.addView(
             Space(this),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.39f),
@@ -490,8 +488,6 @@ class ModernBrowserActivity : BrowserActivity() {
 
         val webView = currentWebView()
         if (webView == null) {
-            // Network/proxy setup can still be starting. Keep the offline home visible and run
-            // the search as soon as BrowserActivity attaches the first WebView.
             pendingSearch = query
             expectHomeOnNextWebView = true
             return
