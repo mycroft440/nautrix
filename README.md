@@ -6,6 +6,7 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 
 - navegação por HTTPS e pesquisa DuckDuckGo;
 - múltiplas abas com restauração da sessão;
+- recuperação de uma aba quando o processo renderer do WebView falha ou é encerrado por pressão de memória;
 - central de downloads com progresso, tamanho, abrir, cancelar e tentar novamente;
 - cliente torrent interno baseado em libtorrent, com magnet, arquivos `.torrent`, pausa e retomada;
 - upload de arquivos;
@@ -18,9 +19,10 @@ Nautrix agora contém um navegador Android standalone compilável, além dos ove
 - detecção de vídeos na página, com cookies limitados à origem de destino e referência reduzida à origem;
 - botão **⇩** no canto superior para baixar fontes MP4/WebM/MOV expostas pela página ou abrir HLS/DASH no player/cache;
 - feedback de conexão, buffer, falta de internet, erro e aviso **“Servidor do site lento!”**;
-- cache persistente durante a reprodução, com retenção mínima de 5 dias e lista **Vídeos em cache** para rever offline os trechos já carregados;
+- cache persistente durante a reprodução, limitado a 1 GB por LRU, com remoção por idade e lista **Vídeos em cache** para rever offline os trechos já carregados;
 - DNS seguro do Android, respeitando o DNS privado configurado no aparelho;
-- instalação de páginas HTTPS na tela inicial, abertas como app sem as barras do navegador;
+- página inicial moderna realmente offline, baseada em `about:blank`, que descarrega a página anterior ao voltar para o início;
+- atalhos de páginas HTTPS na tela inicial;
 - tema escuro.
 
 Para usar o player, abra uma página com vídeo e selecione **Menu → Abrir vídeo no player**.
@@ -43,8 +45,9 @@ já gravadas.
 
 O cache é preenchido conforme o vídeo toca ou entra no buffer. Sem internet, apenas os trechos já
 armazenados podem ser reproduzidos; o Nautrix não afirma ter baixado as partes que nunca foram
-recebidas. O app não remove conteúdo com menos de 5 dias, salvo se o usuário limpar os dados ou o
-cache pelo menu.
+recebidas. O cache tem teto de 1 GB. Conteúdo antigo é removido por idade e, quando o limite de
+armazenamento é atingido, o LRU pode remover conteúdo mais recente para impedir crescimento sem
+controle. Usar **Limpar cache de vídeos** remove o conteúdo imediatamente.
 
 Em **Menu → DNS seguro do Android**, é possível conferir a política ativa. O protótipo WebView não
 faz mais consultas diretas por UDP/53 nem instala um proxy DNS local. A seleção automática com DoH
@@ -55,8 +58,10 @@ opcional e pode ser aberta em **Menu → Execução em segundo plano** quando o 
 precisar manter uma transferência longa.
 
 Em **Menu → Instalar página como app**, o Android pede confirmação para adicionar um ícone à tela
-inicial. O atalho abre a página em uma atividade própria, sem a barra de endereço e a navegação do
-Nautrix.
+inicial. Por segurança, o atalho atualmente abre o site com o chrome normal do Nautrix. O modo sem
+barras só deve voltar quando o atalho estiver vinculado a um identificador interno confiável, para
+que outro aplicativo não possa forçar uma página arbitrária a aparecer como uma janela sem barra
+de endereço.
 
 Veja a [auditoria funcional](docs/FUNCTION_AUDIT.md) para os limites e o estado exato de cada item.
 O plano de migração está em [ROADMAP.md](docs/ROADMAP.md).
